@@ -2,7 +2,6 @@ package gol
 
 import (
 	"fmt"
-	"gol-coursework-distributed/gol/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
