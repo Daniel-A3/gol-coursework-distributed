@@ -1,8 +1,15 @@
-package gol
+package stubs
 
 import "uk.ac.bris.cs/gameoflife/util"
 
 var processTurnsHandler = "GOL.CalculateNextTurn"
+
+type Params struct {
+	Turns       int
+	Threads     int
+	ImageWidth  int
+	ImageHeight int
+}
 
 type Response struct {
 	world        [][]byte

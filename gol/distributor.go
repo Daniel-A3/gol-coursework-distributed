@@ -1,7 +1,9 @@
 package gol
 
 import (
+	"flag"
 	"fmt"
+	"net/rpc"
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
@@ -16,9 +18,23 @@ type distributorChannels struct {
 	ioInput    <-chan uint8
 }
 
+func processTurnsCall(client *rpc.Client, p Params, world [][]byte, startX, endX, startY, endY, turn int) [][]byte {
+	request := Request{world: world, p: p, startX: startX, endX: endX, startY: startY, endY: endY, turn: turn}
+	response := new(Response)
+	err := client.Call(processTurnsHandler, request, response)
+	if err != nil {
+		fmt.Println("Error calling!")
+		return nil
+	}
+	return response.world
+}
+
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
-	//server := flag.String("server", "98.83.154.96:8030", "IP:port string to connect to as server")
+	server := flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
+	flag.Parse()
+	client, _ := rpc.Dial("tcp", *server)
+	defer client.Close()
 
 	// TODO: Create a 2D slice to store the world.
 	world := createWorld(p.ImageHeight, p.ImageWidth)
@@ -30,6 +46,11 @@ func distributor(p Params, c distributorChannels) {
 	//channels := make([]chan [][]byte, p.Threads)
 	turn := 0
 	c.events <- StateChange{turn, Executing}
+	for turn < p.Turns {
+		world = processTurnsCall(client, p, world, 0, p.ImageWidth, 0, p.ImageHeight, turn)
+		turn++
+		c.events <- TurnComplete{turn}
+	}
 
 	// TODO: Execute all turns of the Game of Life.
 
