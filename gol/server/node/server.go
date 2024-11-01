@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
-	"uk.ac.bris.cs/gameoflife/gol/worker/stubs"
+	"uk.ac.bris.cs/gameoflife/gol/server/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 	//	"time"
 	//	"math/rand"
@@ -75,7 +75,7 @@ func (gol *GOL) CalculateAliveCells(req stubs.Request, res *stubs.Response) erro
 	return nil
 }
 
-//func worker(p Params, world [][]byte, startX, endX, startY, endY int, out chan<- [][]byte, c distributorChannels, turn int) {
+//func server(p Params, world [][]byte, startX, endX, startY, endY int, out chan<- [][]byte, c distributorChannels, turn int) {
 //	out <- calculateNextState(p, world, startX, endX, startY, endY, c, turn)
 //}
 
