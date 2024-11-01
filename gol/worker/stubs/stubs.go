@@ -12,17 +12,17 @@ type Params struct {
 }
 
 type Response struct {
-	world        [][]byte
-	flippedCells []util.Cell
-	alive        int
+	World        [][]byte
+	FlippedCells []util.Cell
+	Alive        int
 }
 
 type Request struct {
-	world  [][]byte
-	p      Params
-	startX int
-	endX   int
-	startY int
-	endY   int
-	turn   int
+	World  [][]byte
+	P      Params
+	StartX int
+	EndX   int
+	StartY int
+	EndY   int
+	Turn   int
 }

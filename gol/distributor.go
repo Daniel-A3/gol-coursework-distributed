@@ -19,14 +19,14 @@ type distributorChannels struct {
 }
 
 func processTurnsCall(client *rpc.Client, p Params, world [][]byte, startX, endX, startY, endY, turn int) [][]byte {
-	request := Request{world: world, p: p, startX: startX, endX: endX, startY: startY, endY: endY, turn: turn}
+	request := Request{World: world, P: p, StartX: startX, EndX: endX, StartY: startY, EndY: endY, Turn: turn}
 	response := new(Response)
 	err := client.Call(processTurnsHandler, request, response)
 	if err != nil {
 		fmt.Println("Error calling!")
 		return nil
 	}
-	return response.world
+	return response.World
 }
 
 // distributor divides the work between workers and interacts with other goroutines.

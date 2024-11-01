@@ -1,3 +1,3 @@
-module worker
+module uk.ac.bris.cs/gameoflife
 
 go 1.17

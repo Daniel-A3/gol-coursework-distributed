@@ -15,7 +15,7 @@ type GOL struct {
 }
 
 func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) (err error) {
-	height := req.endY - req.startY
+	height := req.EndY - req.StartY
 	width := req.endX - req.startX
 	nextWorld := createWorld(height, width)
 
