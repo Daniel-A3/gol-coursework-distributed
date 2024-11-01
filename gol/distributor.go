@@ -4,10 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"net/rpc"
+	"sync"
 	"uk.ac.bris.cs/gameoflife/util"
 )
-
-//import "fmt"
 
 type distributorChannels struct {
 	events     chan<- Event
@@ -22,7 +21,6 @@ type distributorChannels struct {
 func processTurnsCall(client *rpc.Client, p Params, world [][]byte, startX, endX, startY, endY, turn int) [][]byte {
 	request := Request{World: world, P: p, StartX: startX, EndX: endX, StartY: startY, EndY: endY, Turn: turn}
 	response := new(Response)
-	fmt.Println("IM HERE 6")
 	err := client.Call(calculateNextState, request, response)
 	if err != nil {
 		fmt.Println(err)
@@ -33,17 +31,15 @@ func processTurnsCall(client *rpc.Client, p Params, world [][]byte, startX, endX
 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
-	//var mu sync.Mutex
-	fmt.Println("IM HERE 1")
+	var mu sync.Mutex
+	mu.Lock()
 	server := flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
+	mu.Unlock()
 	flag.Parse()
 	client, _ := rpc.Dial("tcp", *server)
 	defer client.Close()
-	fmt.Println("IM HERE 2")
-
 	// TODO: Create a 2D slice to store the world.
 	world := createWorld(p.ImageHeight, p.ImageWidth)
-	fmt.Println("IM HERE 3")
 
 	// Gets the world from input
 	world = inputToWorld(p, world, c)
@@ -70,7 +66,6 @@ func distributor(p Params, c distributorChannels) {
 		fmt.Println(err)
 	}
 	finalAliveCells = res.FlippedCells
-	fmt.Println(finalAliveCells)
 	finalState := FinalTurnComplete{turn, finalAliveCells}
 	c.events <- finalState
 	// Make sure that the Io has finished any output before exiting.
@@ -86,9 +81,7 @@ func distributor(p Params, c distributorChannels) {
 func inputToWorld(p Params, world [][]byte, c distributorChannels) [][]byte {
 	// Read the file
 	c.ioCommand <- ioInput
-	fmt.Println("IM HERE 4")
 	c.ioFilename <- fmt.Sprintf("%dx%d", p.ImageWidth, p.ImageHeight)
-	fmt.Println("IM HERE 5")
 	for y := 0; y < p.ImageHeight; y++ {
 		for x := 0; x < p.ImageWidth; x++ {
 			world[y][x] = <-c.ioInput

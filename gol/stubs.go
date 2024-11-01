@@ -2,7 +2,7 @@ package gol
 
 import "uk.ac.bris.cs/gameoflife/util"
 
-var calculateNextState = "GOL.CalculateNextTurn"
+var calculateNextState = "GOL.CalculateNextState"
 var calculateAliveCells = "GOL.CalculateAliveCells"
 
 type Response struct {

@@ -3,7 +3,6 @@ package main
 import (
 	//	"errors"
 	"flag"
-	"fmt"
 	"net"
 	"uk.ac.bris.cs/gameoflife/gol/server/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
@@ -15,8 +14,7 @@ import (
 type GOL struct {
 }
 
-func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) (err error) {
-	fmt.Printf("WOrking %d\n", req.Turn)
+func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error {
 	height := req.EndY - req.StartY
 	width := req.EndX - req.StartX
 	nextWorld := createWorld(height, width)
@@ -55,7 +53,7 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) (err 
 		}
 	}
 	res.World = nextWorld
-	return
+	return nil
 }
 
 func (gol *GOL) CalculateAliveCells(req stubs.Request, res *stubs.Response) error {
@@ -91,11 +89,7 @@ func main() {
 
 	pAddr := flag.String("port", "8030", "Port to listen on")
 	flag.Parse()
-	err := rpc.Register(&GOL{})
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+	rpc.Register(&GOL{})
 	listener, _ := net.Listen("tcp", ":"+*pAddr)
 	defer listener.Close()
 	rpc.Accept(listener)
