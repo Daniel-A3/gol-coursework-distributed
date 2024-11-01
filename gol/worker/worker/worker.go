@@ -3,6 +3,7 @@ package main
 import (
 	//	"errors"
 	"flag"
+	"fmt"
 	"net"
 	"uk.ac.bris.cs/gameoflife/gol/worker/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
@@ -15,17 +16,18 @@ type GOL struct {
 }
 
 func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) (err error) {
+	fmt.Printf("WOrking %d\n", req.Turn)
 	height := req.EndY - req.StartY
-	width := req.endX - req.startX
+	width := req.EndX - req.StartX
 	nextWorld := createWorld(height, width)
 
 	countAlive := func(y, x int) int {
 		alive := 0
 		for i := -1; i < 2; i++ {
 			for j := -1; j < 2; j++ {
-				neighbourY := (y + i + req.p.ImageHeight) % req.p.ImageHeight
-				neighbourX := (x + j + req.p.ImageWidth) % req.p.ImageWidth
-				if !(i == 0 && j == 0) && (req.world[neighbourY][neighbourX] == 255) {
+				neighbourY := (y + i + req.P.ImageHeight) % req.P.ImageHeight
+				neighbourX := (x + j + req.P.ImageWidth) % req.P.ImageWidth
+				if !(i == 0 && j == 0) && (req.World[neighbourY][neighbourX] == 255) {
 					alive++
 				}
 			}
@@ -33,44 +35,44 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) (err 
 		return alive
 	}
 
-	for y := req.startY; y < req.endY; y++ {
-		for x := req.startX; x < req.endX; x++ {
+	for y := req.StartY; y < req.EndY; y++ {
+		for x := req.StartX; x < req.EndX; x++ {
 			aliveNeighbour := countAlive(y, x)
 
-			if req.world[y][x] == 255 {
+			if req.World[y][x] == 255 {
 				if aliveNeighbour < 2 || aliveNeighbour > 3 {
-					nextWorld[y-req.startY][x] = 0
+					nextWorld[y-req.StartY][x] = 0
 				} else {
-					nextWorld[y-req.startY][x] = 255
+					nextWorld[y-req.StartY][x] = 255
 				}
 			} else {
 				if aliveNeighbour == 3 {
-					nextWorld[y-req.startY][x] = 255
+					nextWorld[y-req.StartY][x] = 255
 				} else {
-					nextWorld[y-req.startY][x] = 0
+					nextWorld[y-req.StartY][x] = 0
 				}
 			}
 		}
 	}
-	res.world = nextWorld
+	res.World = nextWorld
 	return
 }
 
-func (gol *GOL) CalculateAliveCells(req stubs.Request, res *stubs.Response) {
+func (gol *GOL) CalculateAliveCells(req stubs.Request, res *stubs.Response) error {
 	var alive []util.Cell
 	count := 0
-	for y := 0; y < req.p.ImageHeight; y++ {
-		for x := 0; x < req.p.ImageWidth; x++ {
-			if req.world[y][x] == 255 {
+	for y := 0; y < req.P.ImageHeight; y++ {
+		for x := 0; x < req.P.ImageWidth; x++ {
+			if req.World[y][x] == 255 {
 				count++
 				alive = append(alive, util.Cell{X: x, Y: y})
 			}
 		}
 	}
-	res.alive = count
-	res.flippedCells = alive
-	res.world = req.world
-	return
+	res.Alive = count
+	res.FlippedCells = alive
+	res.World = req.World
+	return nil
 }
 
 //func worker(p Params, world [][]byte, startX, endX, startY, endY int, out chan<- [][]byte, c distributorChannels, turn int) {
@@ -91,6 +93,7 @@ func main() {
 	flag.Parse()
 	err := rpc.Register(&GOL{})
 	if err != nil {
+		fmt.Println(err)
 		return
 	}
 	listener, _ := net.Listen("tcp", ":"+*pAddr)

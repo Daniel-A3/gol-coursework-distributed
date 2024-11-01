@@ -2,7 +2,8 @@ package gol
 
 import "uk.ac.bris.cs/gameoflife/util"
 
-var processTurnsHandler = "GOL.CalculateNextTurn"
+var calculateNextState = "GOL.CalculateNextTurn"
+var calculateAliveCells = "GOL.CalculateAliveCells"
 
 type Response struct {
 	World        [][]byte

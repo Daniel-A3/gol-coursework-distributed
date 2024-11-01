@@ -16,14 +16,16 @@ type distributorChannels struct {
 	ioFilename chan<- string
 	ioOutput   chan<- uint8
 	ioInput    <-chan uint8
+	keyPresses <-chan rune
 }
 
 func processTurnsCall(client *rpc.Client, p Params, world [][]byte, startX, endX, startY, endY, turn int) [][]byte {
 	request := Request{World: world, P: p, StartX: startX, EndX: endX, StartY: startY, EndY: endY, Turn: turn}
 	response := new(Response)
-	err := client.Call(processTurnsHandler, request, response)
+	fmt.Println("IM HERE 6")
+	err := client.Call(calculateNextState, request, response)
 	if err != nil {
-		fmt.Println("Error calling!")
+		fmt.Println(err)
 		return nil
 	}
 	return response.World
@@ -31,13 +33,17 @@ func processTurnsCall(client *rpc.Client, p Params, world [][]byte, startX, endX
 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
+	//var mu sync.Mutex
+	fmt.Println("IM HERE 1")
 	server := flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
 	flag.Parse()
 	client, _ := rpc.Dial("tcp", *server)
 	defer client.Close()
+	fmt.Println("IM HERE 2")
 
 	// TODO: Create a 2D slice to store the world.
 	world := createWorld(p.ImageHeight, p.ImageWidth)
+	fmt.Println("IM HERE 3")
 
 	// Gets the world from input
 	world = inputToWorld(p, world, c)
@@ -45,6 +51,7 @@ func distributor(p Params, c distributorChannels) {
 	// List of channels for workers with the size of the amount of threads that are going to be used
 	//channels := make([]chan [][]byte, p.Threads)
 	turn := 0
+
 	c.events <- StateChange{turn, Executing}
 	for turn < p.Turns {
 		world = processTurnsCall(client, p, world, 0, p.ImageWidth, 0, p.ImageHeight, turn)
@@ -55,7 +62,17 @@ func distributor(p Params, c distributorChannels) {
 	// TODO: Execute all turns of the Game of Life.
 
 	// TODO: Report the final state using FinalTurnCompleteEvent.
-
+	req := Request{World: world, P: p, StartX: 0, EndX: p.ImageWidth, StartY: 0, EndY: p.ImageHeight, Turn: turn}
+	res := new(Response)
+	finalAliveCells := make([]util.Cell, p.ImageWidth*p.ImageHeight)
+	err := client.Call(calculateAliveCells, req, res)
+	if err != nil {
+		fmt.Println(err)
+	}
+	finalAliveCells = res.FlippedCells
+	fmt.Println(finalAliveCells)
+	finalState := FinalTurnComplete{turn, finalAliveCells}
+	c.events <- finalState
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
@@ -69,7 +86,9 @@ func distributor(p Params, c distributorChannels) {
 func inputToWorld(p Params, world [][]byte, c distributorChannels) [][]byte {
 	// Read the file
 	c.ioCommand <- ioInput
+	fmt.Println("IM HERE 4")
 	c.ioFilename <- fmt.Sprintf("%dx%d", p.ImageWidth, p.ImageHeight)
+	fmt.Println("IM HERE 5")
 	for y := 0; y < p.ImageHeight; y++ {
 		for x := 0; x < p.ImageWidth; x++ {
 			world[y][x] = <-c.ioInput
@@ -78,6 +97,7 @@ func inputToWorld(p Params, world [][]byte, c distributorChannels) [][]byte {
 			}
 		}
 	}
+
 	return world
 }
 
