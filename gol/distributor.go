@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"net/rpc"
+	"sync"
+	"time"
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
@@ -28,11 +30,21 @@ func processTurnsCall(client *rpc.Client, p Params, world [][]byte, startX, endX
 	return response.World
 }
 
+func sendFinalState(client *rpc.Client, p Params, world [][]byte, c distributorChannels, turn int) {
+	reqA := Request{World: world, P: p, StartX: 0, EndX: p.ImageWidth, StartY: 0, EndY: p.ImageHeight, Turn: turn}
+	resA := new(Response)
+	finalAliveCells := make([]util.Cell, p.ImageWidth*p.ImageHeight)
+	client.Call(calculateAliveCells, reqA, resA)
+	finalAliveCells = resA.FlippedCells
+	finalState := FinalTurnComplete{turn, finalAliveCells}
+	c.events <- finalState
+}
+
 var server = flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
-	//var mu sync.Mutex
+	var mu sync.Mutex
 	flag.Parse()
 	client, _ := rpc.Dial("tcp", *server)
 	defer client.Close()
@@ -47,23 +59,30 @@ func distributor(p Params, c distributorChannels) {
 	turn := 0
 
 	c.events <- StateChange{turn, Executing}
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	go func() {
+		resT := new(Response)
+		for range ticker.C {
+			if turn != 0 {
+				mu.Lock()
+				reqT := Request{World: world, P: p}
+				client.Call(calculateAliveCells, reqT, resT)
+				c.events <- AliveCellsCount{CompletedTurns: turn, CellsCount: resT.Alive}
+				mu.Unlock()
+			}
+		}
+	}()
+
 	for turn < p.Turns {
 		world = processTurnsCall(client, p, world, 0, p.ImageWidth, 0, p.ImageHeight, turn)
 		turn++
 		c.events <- TurnComplete{turn}
 	}
 
-	req := Request{World: world, P: p, StartX: 0, EndX: p.ImageWidth, StartY: 0, EndY: p.ImageHeight, Turn: turn}
-	res := new(Response)
-	finalAliveCells := make([]util.Cell, p.ImageWidth*p.ImageHeight)
-	err := client.Call(calculateAliveCells, req, res)
-	if err != nil {
-		fmt.Println(err)
-	}
-	
-	finalAliveCells = res.FlippedCells
-	finalState := FinalTurnComplete{turn, finalAliveCells}
-	c.events <- finalState
+	sendFinalState(client, p, world, c, turn)
+	worldToOutput(p, world, c, turn)
+
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
