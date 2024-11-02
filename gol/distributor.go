@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"net/rpc"
-	"sync"
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
@@ -29,12 +28,11 @@ func processTurnsCall(client *rpc.Client, p Params, world [][]byte, startX, endX
 	return response.World
 }
 
+var server = flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
+
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
-	var mu sync.Mutex
-	mu.Lock()
-	server := flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
-	mu.Unlock()
+	//var mu sync.Mutex
 	flag.Parse()
 	client, _ := rpc.Dial("tcp", *server)
 	defer client.Close()
@@ -55,9 +53,6 @@ func distributor(p Params, c distributorChannels) {
 		c.events <- TurnComplete{turn}
 	}
 
-	// TODO: Execute all turns of the Game of Life.
-
-	// TODO: Report the final state using FinalTurnCompleteEvent.
 	req := Request{World: world, P: p, StartX: 0, EndX: p.ImageWidth, StartY: 0, EndY: p.ImageHeight, Turn: turn}
 	res := new(Response)
 	finalAliveCells := make([]util.Cell, p.ImageWidth*p.ImageHeight)
@@ -65,6 +60,7 @@ func distributor(p Params, c distributorChannels) {
 	if err != nil {
 		fmt.Println(err)
 	}
+	
 	finalAliveCells = res.FlippedCells
 	finalState := FinalTurnComplete{turn, finalAliveCells}
 	c.events <- finalState
