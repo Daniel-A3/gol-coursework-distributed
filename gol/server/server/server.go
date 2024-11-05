@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"os"
 	"uk.ac.bris.cs/gameoflife/gol/server/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 	//	"time"
@@ -86,16 +87,24 @@ func createWorld(height, width int) [][]byte {
 	return world
 }
 
-var closingServer = make(chan *bool)
+var closingServer = false
 
 func (gol *GOL) ClosingSystem(req stubs.Request, response *stubs.Response) error {
-	closingServer <- &req.Terminate
-	fmt.Println(req.Terminate)
+	closingServer = true
 	return nil
 }
 func main() {
 	pAddr := flag.String("port", "8030", "Port to listen on")
 	flag.Parse()
+	closing := false
+	go func() {
+		for !closing {
+			if closingServer {
+				closing = true
+				os.Exit(0)
+			}
+		}
+	}()
 	rpc.Register(&GOL{})
 	listener, _ := net.Listen("tcp", ":"+*pAddr)
 	defer listener.Close()
