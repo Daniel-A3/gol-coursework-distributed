@@ -3,6 +3,7 @@ package main
 import (
 	//	"errors"
 	"flag"
+	"fmt"
 	"net"
 	"uk.ac.bris.cs/gameoflife/gol/server/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
@@ -18,6 +19,7 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 	height := req.EndY - req.StartY
 	width := req.EndX - req.StartX
 	nextWorld := createWorld(height, width)
+	var cellsFlipped []util.Cell
 
 	countAlive := func(y, x int) int {
 		alive := 0
@@ -40,18 +42,21 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 			if req.World[y][x] == 255 {
 				if aliveNeighbour < 2 || aliveNeighbour > 3 {
 					nextWorld[y-req.StartY][x] = 0
+					cellsFlipped = append(cellsFlipped, util.Cell{X: x, Y: y})
 				} else {
 					nextWorld[y-req.StartY][x] = 255
 				}
 			} else {
 				if aliveNeighbour == 3 {
 					nextWorld[y-req.StartY][x] = 255
+					cellsFlipped = append(cellsFlipped, util.Cell{X: x, Y: y})
 				} else {
 					nextWorld[y-req.StartY][x] = 0
 				}
 			}
 		}
 	}
+	res.FlippedCells = cellsFlipped
 	res.World = nextWorld
 	return nil
 }
@@ -73,10 +78,6 @@ func (gol *GOL) CalculateAliveCells(req stubs.Request, res *stubs.Response) erro
 	return nil
 }
 
-//func server(p Params, world [][]byte, startX, endX, startY, endY int, out chan<- [][]byte, c distributorChannels, turn int) {
-//	out <- calculateNextState(p, world, startX, endX, startY, endY, c, turn)
-//}
-
 func createWorld(height, width int) [][]byte {
 	world := make([][]byte, height)
 	for i := range world {
@@ -85,12 +86,20 @@ func createWorld(height, width int) [][]byte {
 	return world
 }
 
-func main() {
+var closingServer = make(chan *bool)
 
+func (gol *GOL) ClosingSystem(req stubs.Request, response *stubs.Response) error {
+	closingServer <- &req.Terminate
+	fmt.Println(req.Terminate)
+	return nil
+}
+func main() {
 	pAddr := flag.String("port", "8030", "Port to listen on")
 	flag.Parse()
 	rpc.Register(&GOL{})
 	listener, _ := net.Listen("tcp", ":"+*pAddr)
 	defer listener.Close()
 	rpc.Accept(listener)
+	fmt.Println(listener)
+
 }

@@ -19,15 +19,26 @@ type distributorChannels struct {
 	keyPresses <-chan rune
 }
 
-func processTurnsCall(client *rpc.Client, p Params, world [][]byte, startX, endX, startY, endY, turn int) [][]byte {
+func closeServer(client *rpc.Client) {
+	request := Request{Terminate: true}
+	response := new(Response)
+	err := client.Call(closingSystem, request, response)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+}
+
+func processTurnsCall(client *rpc.Client, p Params, world [][]byte, startX, endX, startY, endY, turn int, c distributorChannels) ([][]byte, int) {
 	request := Request{World: world, P: p, StartX: startX, EndX: endX, StartY: startY, EndY: endY, Turn: turn}
 	response := new(Response)
 	err := client.Call(calculateNextState, request, response)
 	if err != nil {
 		fmt.Println(err)
-		return nil
+		return world, 1
 	}
-	return response.World
+	c.events <- CellsFlipped{turn, response.FlippedCells}
+	return response.World, 0
 }
 
 func sendFinalState(client *rpc.Client, p Params, world [][]byte, c distributorChannels, turn int) {
@@ -45,9 +56,17 @@ var server = flag.String("server", "127.0.0.1:8030", "IP:port string to connect 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
 	var mu sync.Mutex
+	cond := sync.NewCond(&mu)
+
 	flag.Parse()
 	client, _ := rpc.Dial("tcp", *server)
-	defer client.Close()
+	defer func(client *rpc.Client) {
+		err := client.Close()
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(client)
+
 	// TODO: Create a 2D slice to store the world.
 	world := createWorld(p.ImageHeight, p.ImageWidth)
 
@@ -57,6 +76,9 @@ func distributor(p Params, c distributorChannels) {
 	// List of channels for workers with the size of the amount of threads that are going to be used
 	//channels := make([]chan [][]byte, p.Threads)
 	turn := 0
+	gamePaused := false
+	quit := false
+	quitS := false
 
 	c.events <- StateChange{turn, Executing}
 	ticker := time.NewTicker(2 * time.Second)
@@ -64,7 +86,7 @@ func distributor(p Params, c distributorChannels) {
 	go func() {
 		resT := new(Response)
 		for range ticker.C {
-			if turn != 0 {
+			if turn != 0 && !gamePaused && !quit {
 				mu.Lock()
 				reqT := Request{World: world, P: p}
 				client.Call(calculateAliveCells, reqT, resT)
@@ -74,10 +96,79 @@ func distributor(p Params, c distributorChannels) {
 		}
 	}()
 
+	// Recognising key presses
+	go func() {
+		for {
+			select {
+			case key := <-c.keyPresses:
+				switch key {
+				case 's':
+					mu.Lock()
+					// Puts current world into PMG file
+					worldToOutput(p, world, c, turn)
+					mu.Unlock()
+				case 'p':
+					if !gamePaused {
+						mu.Lock()
+						gamePaused = true
+						fmt.Println("Paused")
+						c.events <- StateChange{turn, Paused}
+						mu.Unlock()
+					} else {
+						mu.Lock()
+						gamePaused = false
+
+						cond.Broadcast() // Resume all paused workers
+
+						fmt.Println("Resumed")
+						c.events <- StateChange{turn, Executing}
+						mu.Unlock()
+					}
+				case 'q':
+					mu.Lock()
+					quit = true
+					if gamePaused {
+						gamePaused = !gamePaused
+						cond.Broadcast()
+					}
+					mu.Unlock()
+					return
+				case 'k':
+					mu.Lock()
+					quit = true
+					quitS = true
+					if gamePaused {
+						gamePaused = !gamePaused
+						cond.Broadcast()
+					}
+					mu.Unlock()
+					return
+				}
+
+			}
+		}
+	}()
+	var errC int
 	for turn < p.Turns {
-		world = processTurnsCall(client, p, world, 0, p.ImageWidth, 0, p.ImageHeight, turn)
+		mu.Lock()
+		for gamePaused {
+			cond.Wait()
+		}
+		mu.Unlock()
+		world, errC = processTurnsCall(client, p, world, 0, p.ImageWidth, 0, p.ImageHeight, turn+1, c)
 		turn++
+		if errC == 1 {
+			turn--
+			terminate(client, p, world, c, turn, quitS)
+			close(c.events)
+			return
+		}
 		c.events <- TurnComplete{turn}
+		if quit {
+			terminate(client, p, world, c, turn, quitS)
+			close(c.events)
+			return
+		}
 	}
 
 	sendFinalState(client, p, world, c, turn)
@@ -131,4 +222,17 @@ func worldToOutput(p Params, world [][]byte, c distributorChannels, turn int) {
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 	c.events <- ImageOutputComplete{turn, fileName}
+}
+
+func terminate(client *rpc.Client, p Params, world [][]byte, c distributorChannels, turn int, quitS bool) {
+	sendFinalState(client, p, world, c, turn)
+	// Outputs the final world into a pmg file
+	worldToOutput(p, world, c, turn)
+	// Make sure that the Io has finished any output before exiting.
+	c.ioCommand <- ioCheckIdle
+	<-c.ioIdle
+	c.events <- StateChange{turn, Quitting}
+	if quitS {
+		closeServer(client)
+	}
 }
