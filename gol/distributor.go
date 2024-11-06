@@ -86,13 +86,13 @@ func distributor(p Params, c distributorChannels) {
 	go func() {
 		resT := new(Response)
 		for range ticker.C {
+			mu.Lock()
 			if turn != 0 && !gamePaused && !quit {
-				mu.Lock()
 				reqT := Request{World: world, P: p}
 				client.Call(calculateAliveCells, reqT, resT)
 				c.events <- AliveCellsCount{CompletedTurns: turn, CellsCount: resT.Alive}
-				mu.Unlock()
 			}
+			mu.Unlock()
 		}
 	}()
 
@@ -155,6 +155,7 @@ func distributor(p Params, c distributorChannels) {
 			cond.Wait()
 		}
 		mu.Unlock()
+		mu.Lock()
 		world, errC = processTurnsCall(client, p, world, 0, p.ImageWidth, 0, p.ImageHeight, turn+1, c)
 		turn++
 		if errC == 1 {
@@ -169,6 +170,7 @@ func distributor(p Params, c distributorChannels) {
 			close(c.events)
 			return
 		}
+		mu.Unlock()
 	}
 
 	sendFinalState(client, p, world, c, turn)
