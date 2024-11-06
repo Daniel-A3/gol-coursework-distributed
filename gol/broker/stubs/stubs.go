@@ -1,4 +1,4 @@
-package gol
+package stubs
 
 import "uk.ac.bris.cs/gameoflife/util"
 
@@ -8,6 +8,13 @@ var closingSystem = "GOL.ClosingSystem"
 var calculateNextStateB = "Broker.CalculateNextState"
 var calculateAliveCellsB = "Broker.CalculateAliveCells"
 var closingSystemB = "Broker.ClosingSystem"
+
+type Params struct {
+	Turns       int
+	Threads     int
+	ImageWidth  int
+	ImageHeight int
+}
 
 type Response struct {
 	World        [][]byte

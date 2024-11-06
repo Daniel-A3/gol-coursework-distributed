@@ -32,7 +32,7 @@ func closeServer(client *rpc.Client) {
 func processTurnsCall(client *rpc.Client, p Params, world [][]byte, startX, endX, startY, endY, turn int, c distributorChannels) ([][]byte, int) {
 	request := Request{World: world, P: p, StartX: startX, EndX: endX, StartY: startY, EndY: endY, Turn: turn}
 	response := new(Response)
-	err := client.Call(calculateNextState, request, response)
+	err := client.Call(calculateNextStateB, request, response)
 	if err != nil {
 		fmt.Println(err)
 		return world, 1
@@ -45,13 +45,13 @@ func sendFinalState(client *rpc.Client, p Params, world [][]byte, c distributorC
 	reqA := Request{World: world, P: p, StartX: 0, EndX: p.ImageWidth, StartY: 0, EndY: p.ImageHeight, Turn: turn}
 	resA := new(Response)
 	finalAliveCells := make([]util.Cell, p.ImageWidth*p.ImageHeight)
-	client.Call(calculateAliveCells, reqA, resA)
+	client.Call(calculateAliveCellsB, reqA, resA)
 	finalAliveCells = resA.FlippedCells
 	finalState := FinalTurnComplete{turn, finalAliveCells}
 	c.events <- finalState
 }
 
-var server = flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
+var broker = flag.String("server", "127.0.0.1:8050", "IP:port string to connect to as server")
 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
@@ -59,7 +59,7 @@ func distributor(p Params, c distributorChannels) {
 	cond := sync.NewCond(&mu)
 
 	flag.Parse()
-	client, _ := rpc.Dial("tcp", *server)
+	client, _ := rpc.Dial("tcp", *broker)
 	defer func(client *rpc.Client) {
 		err := client.Close()
 		if err != nil {
@@ -89,7 +89,7 @@ func distributor(p Params, c distributorChannels) {
 			mu.Lock()
 			if turn != 0 && !gamePaused && !quit {
 				reqT := Request{World: world, P: p}
-				client.Call(calculateAliveCells, reqT, resT)
+				client.Call(calculateAliveCellsB, reqT, resT)
 				c.events <- AliveCellsCount{CompletedTurns: turn, CellsCount: resT.Alive}
 			}
 			mu.Unlock()
@@ -126,6 +126,7 @@ func distributor(p Params, c distributorChannels) {
 					}
 				case 'q':
 					mu.Lock()
+					ticker.Stop()
 					quit = true
 					if gamePaused {
 						gamePaused = !gamePaused
@@ -135,6 +136,7 @@ func distributor(p Params, c distributorChannels) {
 					return
 				case 'k':
 					mu.Lock()
+					ticker.Stop()
 					quit = true
 					quitS = true
 					if gamePaused {
@@ -183,6 +185,7 @@ func distributor(p Params, c distributorChannels) {
 	c.events <- StateChange{turn, Quitting}
 
 	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
+	ticker.Stop()
 	close(c.events)
 }
 
