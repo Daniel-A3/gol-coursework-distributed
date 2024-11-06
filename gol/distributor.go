@@ -185,6 +185,7 @@ func distributor(p Params, c distributorChannels) {
 	c.events <- StateChange{turn, Quitting}
 
 	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
+	quit = true
 	ticker.Stop()
 	close(c.events)
 }
