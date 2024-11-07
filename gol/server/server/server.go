@@ -87,11 +87,9 @@ func createWorld(height, width int) [][]byte {
 }
 
 var closingServer = make(chan struct{})
-var closedListener = make(chan struct{})
 
 func (gol *GOL) ClosingSystem(req stubs.Request, response *stubs.Response) error {
 	close(closingServer)
-	close(closedListener)
 	return nil
 }
 func main() {

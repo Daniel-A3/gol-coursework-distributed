@@ -22,7 +22,7 @@ type distributorChannels struct {
 func closeServer(client *rpc.Client) {
 	request := Request{Terminate: true}
 	response := new(Response)
-	err := client.Call(closingSystem, request, response)
+	err := client.Call(closingSystemB, request, response)
 	if err != nil {
 		fmt.Println(err)
 		return
