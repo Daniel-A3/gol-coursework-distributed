@@ -151,6 +151,13 @@ func (b *Broker) CalculateAliveCells(req stubs.Request, res *stubs.Response) err
 		}
 		return alive
 	}(responses)
+	res.FlippedCells = func(responses []stubs.Response) []util.Cell {
+		var fc []util.Cell
+		for _, s := range responses {
+			fc = append(fc, s.FlippedCells...)
+		}
+		return fc
+	}(responses)
 	return nil
 }
 
