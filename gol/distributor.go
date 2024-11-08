@@ -44,6 +44,7 @@ func processTurnsCall(client *rpc.Client, p Params, world [][]byte, startX, endX
 func sendFinalState(client *rpc.Client, p Params, world [][]byte, c distributorChannels, turn int) {
 	reqA := Request{World: world, P: p, StartX: 0, EndX: p.ImageWidth, StartY: 0, EndY: p.ImageHeight, Turn: turn}
 	resA := new(Response)
+
 	finalAliveCells := make([]util.Cell, p.ImageWidth*p.ImageHeight)
 	client.Call(calculateAliveCellsB, reqA, resA)
 	finalAliveCells = resA.FlippedCells
@@ -88,7 +89,7 @@ func distributor(p Params, c distributorChannels) {
 		for range ticker.C {
 			mu.Lock()
 			if turn != 0 && !gamePaused && !quit {
-				reqT := Request{World: world, P: p}
+				reqT := Request{World: world, P: p, StartX: 0, EndX: p.ImageWidth, StartY: 0, EndY: p.ImageHeight}
 				client.Call(calculateAliveCellsB, reqT, resT)
 				c.events <- AliveCellsCount{CompletedTurns: turn, CellsCount: resT.Alive}
 			}
@@ -174,7 +175,6 @@ func distributor(p Params, c distributorChannels) {
 		}
 		mu.Unlock()
 	}
-
 	sendFinalState(client, p, world, c, turn)
 	worldToOutput(p, world, c, turn)
 

@@ -8,6 +8,7 @@ import (
 	"net/rpc"
 	"os"
 	"strings"
+	"sync"
 	"uk.ac.bris.cs/gameoflife/gol/broker/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -18,7 +19,7 @@ type Broker struct {
 	closing chan struct{}
 }
 
-var CloseSystem = false
+var mu sync.Mutex
 
 // NewBroker initializes the broker by connecting to the server
 func NewBroker(serverAddrs []string) (*Broker, error) {
@@ -64,10 +65,11 @@ func (b *Broker) CalculateNextState(req stubs.Request, res *stubs.Response) erro
 			EndY:   endY,
 			Turn:   req.Turn,
 		}
-
+		mu.Lock()
 		go func(i int) {
-			errCh <- b.servers[i].Call("GOL.CalculateNextState", subReq, &responses[i])
+			errCh <- b.servers[i].Call("GOL.DistributeNext", subReq, &responses[i])
 		}(i)
+		mu.Unlock()
 		startY = endY
 	}
 
@@ -131,10 +133,11 @@ func (b *Broker) CalculateAliveCells(req stubs.Request, res *stubs.Response) err
 			EndY:   endY,
 			Turn:   req.Turn,
 		}
-
+		mu.Lock()
 		go func(i int) {
-			errCh <- b.servers[i].Call("GOL.CalculateAliveCells", subReq, &responses[i])
+			errCh <- b.servers[i].Call("GOL.DistributeAlive", subReq, &responses[i])
 		}(i)
+		mu.Unlock()
 		startY = endY
 	}
 
@@ -144,6 +147,7 @@ func (b *Broker) CalculateAliveCells(req stubs.Request, res *stubs.Response) err
 			return fmt.Errorf("error from server %d: %v", i, err)
 		}
 	}
+
 	res.Alive = func(responses []stubs.Response) int {
 		alive := 0
 		for _, s := range responses {
@@ -151,6 +155,7 @@ func (b *Broker) CalculateAliveCells(req stubs.Request, res *stubs.Response) err
 		}
 		return alive
 	}(responses)
+
 	res.FlippedCells = func(responses []stubs.Response) []util.Cell {
 		var fc []util.Cell
 		for _, s := range responses {

@@ -2,8 +2,8 @@ package stubs
 
 import "uk.ac.bris.cs/gameoflife/util"
 
-var calculateNextState = "GOL.CalculateNextState"
-var calculateAliveCells = "GOL.CalculateAliveCells"
+var calculateNextState = "GOL.DistributeNext"
+var calculateAliveCells = "GOL.DistributeAlive"
 var closingSystem = "GOL.ClosingSystem"
 var calculateNextStateB = "Broker.CalculateNextState"
 var calculateAliveCellsB = "Broker.CalculateAliveCells"
