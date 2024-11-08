@@ -65,11 +65,9 @@ func (b *Broker) CalculateNextState(req stubs.Request, res *stubs.Response) erro
 			EndY:   endY,
 			Turn:   req.Turn,
 		}
-		mu.Lock()
 		go func(i int) {
 			errCh <- b.servers[i].Call("GOL.CalculateNextState", subReq, &responses[i])
 		}(i)
-		mu.Unlock()
 		startY = endY
 	}
 
@@ -117,11 +115,10 @@ func (b *Broker) CalculateAliveCells(req stubs.Request, res *stubs.Response) err
 	startY := req.StartY
 	// Send each part to a different server
 	for i := 0; i < numServers; i++ {
-		numRows := heightPerServer
+		endY := startY + heightPerServer
 		if extraHeight > i {
-			numRows++
+			endY++
 		}
-		endY := startY + numRows
 
 		// Prepare request for each server
 		subReq := stubs.Request{
@@ -133,11 +130,9 @@ func (b *Broker) CalculateAliveCells(req stubs.Request, res *stubs.Response) err
 			EndY:   endY,
 			Turn:   req.Turn,
 		}
-		mu.Lock()
 		go func(i int) {
 			errCh <- b.servers[i].Call("GOL.CalculateAliveCells", subReq, &responses[i])
 		}(i)
-		mu.Unlock()
 		startY = endY
 	}
 

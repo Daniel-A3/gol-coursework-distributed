@@ -22,9 +22,6 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 	if numWorkers > 16 {
 		numWorkers = 16
 	}
-	if numWorkers < 4 {
-		numWorkers = 4
-	}
 
 	rowsPerWorker := height / numWorkers
 	extraRows := height % numWorkers
@@ -32,9 +29,8 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 	var wg sync.WaitGroup
 	flippedCells := make([][]util.Cell, numWorkers) // Slice to store flipped cells from each worker
 	worlds := make([][][]byte, numWorkers)          // Slice to store partial nextWorlds from each worker
-
+	startY := req.StartY
 	for w := 0; w < numWorkers; w++ {
-		startY := w * rowsPerWorker
 		endY := startY + rowsPerWorker
 		if w < extraRows {
 			endY++
@@ -47,6 +43,7 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 			flippedCells[workerIndex] = flipped
 			worlds[workerIndex] = partialWorld
 		}(w, startY, endY)
+		startY = endY
 	}
 
 	wg.Wait()
@@ -57,7 +54,7 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 	}
 
 	// Merge `worlds` back into `nextWorld`
-	startY := 0
+	startY = 0
 	for _, partialWorld := range worlds {
 		for i := range partialWorld {
 			copy(nextWorld[startY+i], partialWorld[i])
@@ -96,19 +93,19 @@ func calculateNextState(p stubs.Params, world [][]byte, startX, endX, startY, en
 	for y := startY; y < endY; y++ {
 		for x := startX; x < endX; x++ {
 			aliveNeighbour := countAlive(y, x)
-			if world[y][x] == 255 {
+			if world[y][x] == 255 { // Cell is alive
 				if aliveNeighbour < 2 || aliveNeighbour > 3 {
-					nextWorld[y-startY][x] = 0
+					nextWorld[y-startY][x] = 0 // Cell dies
 					cellsFlipped = append(cellsFlipped, util.Cell{X: x, Y: y})
 				} else {
-					nextWorld[y-startY][x] = 255
+					nextWorld[y-startY][x] = 255 // Cell stays alive
 				}
-			} else {
+			} else { // Cell is dead
 				if aliveNeighbour == 3 {
-					nextWorld[y-startY][x] = 255
+					nextWorld[y-startY][x] = 255 // Cell becomes alive
 					cellsFlipped = append(cellsFlipped, util.Cell{X: x, Y: y})
 				} else {
-					nextWorld[y-startY][x] = 0
+					nextWorld[y-startY][x] = 0 // Cell remains dead
 				}
 			}
 		}
@@ -151,7 +148,11 @@ func (gol *GOL) ClosingSystem(req stubs.Request, response *stubs.Response) error
 func main() {
 	pAddr := flag.String("port", "8030", "Port to listen on")
 	flag.Parse()
-	listener, _ := net.Listen("tcp", ":"+*pAddr)
+	listener, err := net.Listen("tcp", ":"+*pAddr)
+	if err != nil {
+		fmt.Println("Error starting server:", err)
+		return
+	}
 	defer listener.Close()
 	rpc.Register(&GOL{})
 	go func(listener net.Listener) {
