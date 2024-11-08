@@ -67,7 +67,7 @@ func (b *Broker) CalculateNextState(req stubs.Request, res *stubs.Response) erro
 		}
 		mu.Lock()
 		go func(i int) {
-			errCh <- b.servers[i].Call("GOL.DistributeNext", subReq, &responses[i])
+			errCh <- b.servers[i].Call("GOL.CalculateNextState", subReq, &responses[i])
 		}(i)
 		mu.Unlock()
 		startY = endY
@@ -135,7 +135,7 @@ func (b *Broker) CalculateAliveCells(req stubs.Request, res *stubs.Response) err
 		}
 		mu.Lock()
 		go func(i int) {
-			errCh <- b.servers[i].Call("GOL.DistributeAlive", subReq, &responses[i])
+			errCh <- b.servers[i].Call("GOL.CalculateAliveCells", subReq, &responses[i])
 		}(i)
 		mu.Unlock()
 		startY = endY
