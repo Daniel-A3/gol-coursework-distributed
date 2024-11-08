@@ -217,10 +217,13 @@ func StartRPCServer(broker *Broker, brokerAddr string) error {
 }
 
 func main() {
-	serversFlag := flag.String("servers", "127.0.0.1:8030", "Comma-separated list of server addresses")
+	serversFlag := flag.String("servers", "8030", "Comma-separated list of server addresses")
 	brokerAddr := flag.String("brokerAddr", "127.0.0.1:8050", "Broker address for client to connect")
 	flag.Parse()
 	serverAddrs := strings.Split(*serversFlag, ",")
+	for i := 0; i < len(serverAddrs); i++ {
+		serverAddrs[i] = "127.0.0.1:" + serverAddrs[i]
+	}
 	// Connect broker to the server
 	broker, err := NewBroker(serverAddrs)
 	if err != nil {
