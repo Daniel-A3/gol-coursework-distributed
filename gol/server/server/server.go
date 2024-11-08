@@ -16,6 +16,64 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 	height := req.EndY - req.StartY
 	width := req.EndX - req.StartX
 	nextWorld := createWorld(height, width)
+<<<<<<< HEAD
+=======
+	var cF []util.Cell
+
+	numWorkers := height
+	if numWorkers > 16 {
+		numWorkers = 16
+	}
+
+	rowsPerWorker := height / numWorkers
+	extraRows := height % numWorkers
+
+	var wg sync.WaitGroup
+	flippedCells := make([][]util.Cell, numWorkers) // Slice to store flipped cells from each worker
+	worlds := make([][][]byte, numWorkers)          // Slice to store partial nextWorlds from each worker
+	startY := req.StartY
+	for w := 0; w < numWorkers; w++ {
+		endY := startY + rowsPerWorker
+		if w < extraRows {
+			endY++
+		}
+
+		wg.Add(1)
+		go func(workerIndex, startY, endY int) {
+			defer wg.Done()
+			flipped, partialWorld := calculateNextState(req.P, req.World, req.StartX, req.EndX, startY, endY)
+			flippedCells[workerIndex] = flipped
+			worlds[workerIndex] = partialWorld
+		}(w, startY, endY)
+		startY = endY
+	}
+
+	wg.Wait()
+
+	// Combine results from workers
+	for _, flipped := range flippedCells {
+		cF = append(cF, flipped...)
+	}
+
+	// Merge `worlds` back into `nextWorld`
+	startY = 0
+	for _, partialWorld := range worlds {
+		for i := range partialWorld {
+			copy(nextWorld[startY+i], partialWorld[i])
+		}
+		startY += len(partialWorld)
+	}
+
+	res.FlippedCells = cF
+	res.World = nextWorld
+	return nil
+}
+
+func calculateNextState(p stubs.Params, world [][]byte, startX, endX, startY, endY int) ([]util.Cell, [][]byte) {
+	height := endY - startY
+	width := endX - startX
+	nextWorld := createWorld(height, width)
+>>>>>>> workers-server
 	var cellsFlipped []util.Cell
 
 	countAlive := func(y, x int) int {
@@ -35,6 +93,7 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 	for y := req.StartY; y < req.EndY; y++ {
 		for x := req.StartX; x < req.EndX; x++ {
 			aliveNeighbour := countAlive(y, x)
+<<<<<<< HEAD
 
 			if req.World[y][x] == 255 { // Cell is alive
 				if aliveNeighbour < 2 || aliveNeighbour > 3 {
@@ -49,6 +108,21 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 					cellsFlipped = append(cellsFlipped, util.Cell{X: x, Y: y})
 				} else {
 					nextWorld[y-req.StartY][x] = 0 // Cell remains dead
+=======
+			if world[y][x] == 255 { // Cell is alive
+				if aliveNeighbour < 2 || aliveNeighbour > 3 {
+					nextWorld[y-startY][x] = 0 // Cell dies
+					cellsFlipped = append(cellsFlipped, util.Cell{X: x, Y: y})
+				} else {
+					nextWorld[y-startY][x] = 255 // Cell stays alive
+				}
+			} else { // Cell is dead
+				if aliveNeighbour == 3 {
+					nextWorld[y-startY][x] = 255 // Cell becomes alive
+					cellsFlipped = append(cellsFlipped, util.Cell{X: x, Y: y})
+				} else {
+					nextWorld[y-startY][x] = 0 // Cell remains dead
+>>>>>>> workers-server
 				}
 			}
 		}
@@ -60,19 +134,59 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 
 // CalculateAliveCells counts the alive cells in the grid.
 func (gol *GOL) CalculateAliveCells(req stubs.Request, res *stubs.Response) error {
-	var alive []util.Cell
-	count := 0
-	for y := req.StartY; y < req.EndY; y++ {
-		for x := req.StartX; x < req.EndX; x++ {
-			if req.World[y][x] == 255 {
-				count++
-				alive = append(alive, util.Cell{X: x, Y: y})
-			}
-		}
+	numWorkers := req.EndY - req.StartY
+	if numWorkers > 16 {
+		numWorkers = 16
 	}
-	res.Alive = count
-	res.FlippedCells = alive
-	res.World = req.World
+
+	rowsPerWorker := (req.EndY - req.StartY) / numWorkers
+	extraRows := (req.EndY - req.StartY) % numWorkers
+
+	var wg sync.WaitGroup
+	aliveCounts := make([]int, numWorkers)        // Slice to store alive counts from each worker
+	aliveCells := make([][]util.Cell, numWorkers) // Slice to store alive cells from each worker
+
+	startY := req.StartY
+	for w := 0; w < numWorkers; w++ {
+		endY := startY + rowsPerWorker
+		if w < extraRows {
+			endY++
+		}
+
+		wg.Add(1)
+		go func(workerIndex, startY, endY int) {
+			defer wg.Done()
+			count := 0
+			var alive []util.Cell
+			for y := startY; y < endY; y++ {
+				for x := req.StartX; x < req.EndX; x++ {
+					if req.World[y][x] == 255 {
+						count++
+						alive = append(alive, util.Cell{X: x, Y: y})
+					}
+				}
+			}
+			aliveCounts[workerIndex] = count
+			aliveCells[workerIndex] = alive
+		}(w, startY, endY)
+
+		startY = endY
+	}
+
+	wg.Wait()
+
+	// Combine results from workers
+	totalAlive := 0
+	for _, count := range aliveCounts {
+		totalAlive += count
+	}
+	res.Alive = totalAlive
+
+	// Combine flipped cells
+	for _, cells := range aliveCells {
+		res.FlippedCells = append(res.FlippedCells, cells...)
+	}
+	res.World = req.World // Return the original world as is
 	return nil
 }
 
