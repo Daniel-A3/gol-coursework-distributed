@@ -114,19 +114,59 @@ func calculateNextState(p stubs.Params, world [][]byte, startX, endX, startY, en
 }
 
 func (gol *GOL) CalculateAliveCells(req stubs.Request, res *stubs.Response) error {
-	var alive []util.Cell
-	count := 0
-	for y := req.StartY; y < req.EndY; y++ {
-		for x := req.StartX; x < req.EndX; x++ {
-			if req.World[y][x] == 255 {
-				count++
-				alive = append(alive, util.Cell{X: x, Y: y})
-			}
-		}
+	numWorkers := req.EndY - req.StartY
+	if numWorkers > 16 {
+		numWorkers = 16
 	}
-	res.Alive = count
-	res.FlippedCells = alive
-	res.World = req.World
+
+	rowsPerWorker := (req.EndY - req.StartY) / numWorkers
+	extraRows := (req.EndY - req.StartY) % numWorkers
+
+	var wg sync.WaitGroup
+	aliveCounts := make([]int, numWorkers)        // Slice to store alive counts from each worker
+	aliveCells := make([][]util.Cell, numWorkers) // Slice to store alive cells from each worker
+
+	startY := req.StartY
+	for w := 0; w < numWorkers; w++ {
+		endY := startY + rowsPerWorker
+		if w < extraRows {
+			endY++
+		}
+
+		wg.Add(1)
+		go func(workerIndex, startY, endY int) {
+			defer wg.Done()
+			count := 0
+			var alive []util.Cell
+			for y := startY; y < endY; y++ {
+				for x := req.StartX; x < req.EndX; x++ {
+					if req.World[y][x] == 255 {
+						count++
+						alive = append(alive, util.Cell{X: x, Y: y})
+					}
+				}
+			}
+			aliveCounts[workerIndex] = count
+			aliveCells[workerIndex] = alive
+		}(w, startY, endY)
+
+		startY = endY
+	}
+
+	wg.Wait()
+
+	// Combine results from workers
+	totalAlive := 0
+	for _, count := range aliveCounts {
+		totalAlive += count
+	}
+	res.Alive = totalAlive
+
+	// Combine flipped cells
+	for _, cells := range aliveCells {
+		res.FlippedCells = append(res.FlippedCells, cells...)
+	}
+	res.World = req.World // Return the original world as is
 	return nil
 }
 
