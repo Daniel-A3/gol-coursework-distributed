@@ -20,7 +20,7 @@ type distributorChannels struct {
 }
 
 func closeServer(client *rpc.Client) {
-	request := Request{Terminate: true}
+	request := Request{}
 	response := new(Response)
 	err := client.Call(closingSystemB, request, response)
 	if err != nil {
@@ -29,20 +29,8 @@ func closeServer(client *rpc.Client) {
 	}
 }
 
-func processTurnsCall(client *rpc.Client, p Params, world [][]byte, startX, endX, startY, endY, turn int, c distributorChannels) ([][]byte, int) {
-	request := Request{World: world, P: p, StartX: startX, EndX: endX, StartY: startY, EndY: endY, Turn: turn}
-	response := new(Response)
-	err := client.Call(calculateNextStateB, request, response)
-	if err != nil {
-		fmt.Println(err)
-		return world, 1
-	}
-	c.events <- CellsFlipped{turn, response.FlippedCells}
-	return response.World, 0
-}
-
 func sendFinalState(client *rpc.Client, p Params, world [][]byte, c distributorChannels, turn int) {
-	reqA := Request{World: world, P: p, StartX: 0, EndX: p.ImageWidth, StartY: 0, EndY: p.ImageHeight, Turn: turn}
+	reqA := Request{World: world, P: p, StartX: 0, EndX: p.ImageWidth, StartY: 0, EndY: p.ImageHeight, Turns: turn}
 	resA := new(Response)
 
 	finalAliveCells := make([]util.Cell, p.ImageWidth*p.ImageHeight)
@@ -52,12 +40,12 @@ func sendFinalState(client *rpc.Client, p Params, world [][]byte, c distributorC
 	c.events <- finalState
 }
 
-var broker = flag.String("server", "127.0.0.1:8050", "IP:port string to connect to as server")
+var broker = flag.String("broker", "127.0.0.1:8050", "IP:port string to connect to broker")
 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
 	var mu sync.Mutex
-	cond := sync.NewCond(&mu)
+	//cond := sync.NewCond(&mu)
 
 	flag.Parse()
 	client, _ := rpc.Dial("tcp", *broker)
@@ -74,119 +62,105 @@ func distributor(p Params, c distributorChannels) {
 	// Gets the world from input
 	world = inputToWorld(p, world, c)
 
-	// List of channels for workers with the size of the amount of threads that are going to be used
-	//channels := make([]chan [][]byte, p.Threads)
-	turn := 0
-	gamePaused := false
-	quit := false
-	quitS := false
+	//gamePaused := false
+	//quit := false
+	//quitS := false
 
-	c.events <- StateChange{turn, Executing}
+	c.events <- StateChange{0, Executing}
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	go func() {
 		resT := new(Response)
 		for range ticker.C {
 			mu.Lock()
-			if turn != 0 && !gamePaused && !quit {
-				reqT := Request{World: world, P: p, StartX: 0, EndX: p.ImageWidth, StartY: 0, EndY: p.ImageHeight}
-				client.Call(calculateAliveCellsB, reqT, resT)
-				c.events <- AliveCellsCount{CompletedTurns: turn, CellsCount: resT.Alive}
+			reqT := Request{P: p, StartX: 0, EndX: p.ImageWidth, StartY: 0, EndY: p.ImageHeight}
+			client.Call(TickerB, reqT, resT)
+			if resT.Turn != 0 {
+				c.events <- AliveCellsCount{CompletedTurns: resT.Turn, CellsCount: resT.Alive}
 			}
+
 			mu.Unlock()
 		}
 	}()
 
 	// Recognising key presses
-	go func() {
-		for {
-			select {
-			case key := <-c.keyPresses:
-				switch key {
-				case 's':
-					mu.Lock()
-					// Puts current world into PMG file
-					worldToOutput(p, world, c, turn)
-					mu.Unlock()
-				case 'p':
-					if !gamePaused {
-						mu.Lock()
-						gamePaused = true
-						fmt.Println("Paused")
-						c.events <- StateChange{turn, Paused}
-						mu.Unlock()
-					} else {
-						mu.Lock()
-						gamePaused = false
-
-						cond.Broadcast() // Resume all paused workers
-
-						fmt.Println("Resumed")
-						c.events <- StateChange{turn, Executing}
-						mu.Unlock()
-					}
-				case 'q':
-					mu.Lock()
-					ticker.Stop()
-					quit = true
-					if gamePaused {
-						gamePaused = !gamePaused
-						cond.Broadcast()
-					}
-					mu.Unlock()
-					return
-				case 'k':
-					mu.Lock()
-					ticker.Stop()
-					quit = true
-					quitS = true
-					if gamePaused {
-						gamePaused = !gamePaused
-						cond.Broadcast()
-					}
-					mu.Unlock()
-					return
-				}
-
-			}
-		}
-	}()
-	var errC int
-	for turn < p.Turns {
-		mu.Lock()
-		for gamePaused {
-			cond.Wait()
-		}
-		mu.Unlock()
-		mu.Lock()
-		world, errC = processTurnsCall(client, p, world, 0, p.ImageWidth, 0, p.ImageHeight, turn+1, c)
-		turn++
-		if errC == 1 {
-			turn--
-			terminate(client, p, world, c, turn, quitS)
-			close(c.events)
-			return
-		}
-		c.events <- TurnComplete{turn}
-		if quit {
-			terminate(client, p, world, c, turn, quitS)
-			close(c.events)
-			return
-		}
-		mu.Unlock()
+	//go func() {
+	//	for {
+	//		select {
+	//		case key := <-c.keyPresses:
+	//			switch key {
+	//			case 's':
+	//				mu.Lock()
+	//				// Puts current world into PMG file
+	//				worldToOutput(p, world, c, turn)
+	//				mu.Unlock()
+	//			case 'p':
+	//				if !gamePaused {
+	//					mu.Lock()
+	//					gamePaused = true
+	//					fmt.Println("Paused")
+	//					c.events <- StateChange{turn, Paused}
+	//					mu.Unlock()
+	//				} else {
+	//					mu.Lock()
+	//					gamePaused = false
+	//
+	//					cond.Broadcast() // Resume all paused workers
+	//
+	//					fmt.Println("Resumed")
+	//					c.events <- StateChange{turn, Executing}
+	//					mu.Unlock()
+	//				}
+	//			case 'q':
+	//				mu.Lock()
+	//				ticker.Stop()
+	//				quit = true
+	//				if gamePaused {
+	//					gamePaused = !gamePaused
+	//					cond.Broadcast()
+	//				}
+	//				mu.Unlock()
+	//				return
+	//			case 'k':
+	//				mu.Lock()
+	//				ticker.Stop()
+	//				quit = true
+	//				quitS = true
+	//				if gamePaused {
+	//					gamePaused = !gamePaused
+	//					cond.Broadcast()
+	//				}
+	//				mu.Unlock()
+	//				return
+	//			}
+	//
+	//		}
+	//	}
+	//}()
+	req := Request{
+		World:  world,
+		P:      p,
+		StartX: 0,
+		EndX:   p.ImageWidth,
+		StartY: 0,
+		EndY:   p.ImageHeight,
+		Turns:  p.Turns,
 	}
-	sendFinalState(client, p, world, c, turn)
-	worldToOutput(p, world, c, turn)
+	res := new(Response)
+	client.Call(calcutateTurnsB, req, res)
+	finalTurn := res.Turn
+	world = res.World
+	sendFinalState(client, p, world, c, finalTurn)
+	worldToOutput(p, world, c, finalTurn)
 
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 
-	c.events <- StateChange{turn, Quitting}
+	c.events <- StateChange{res.Turn, Quitting}
 
 	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
-	quit = true
-	ticker.Stop()
+	//ticker.Stop()
 	close(c.events)
 }
 

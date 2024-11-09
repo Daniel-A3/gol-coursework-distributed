@@ -20,6 +20,8 @@ type Broker struct {
 }
 
 var mu sync.Mutex
+var worldTurn [][]byte
+var fTurn int
 
 // NewBroker initializes the broker by connecting to the server
 func NewBroker(serverAddrs []string) (*Broker, error) {
@@ -36,6 +38,53 @@ func NewBroker(serverAddrs []string) (*Broker, error) {
 		return nil, fmt.Errorf("failed to connect to any servers")
 	}
 	return &Broker{servers: servers, closing: make(chan struct{})}, nil
+}
+
+func (b *Broker) Ticker(req stubs.Request, res *stubs.Response) error {
+	mu.Lock()
+	res.Turn = fTurn
+	req.World = worldTurn
+	if fTurn != 0 {
+		b.CalculateAliveCells(req, res)
+	}
+	mu.Unlock()
+	return nil
+}
+
+func (b *Broker) CalculateTurns(req stubs.Request, res *stubs.Response) error {
+	numTurns := req.Turns // Number of turns to process
+	world := req.World
+	fTurn = 0
+	for turn := 0; turn < numTurns; turn++ {
+		// Prepare a request for a single turn
+		reqTurn := stubs.Request{
+			World:  world,
+			P:      req.P,
+			StartX: req.StartX,
+			EndX:   req.EndX,
+			StartY: req.StartY,
+			EndY:   req.EndY,
+		}
+
+		// Call CalculateNextState for each turn
+		resTurn := new(stubs.Response)
+		err := b.CalculateNextState(reqTurn, resTurn)
+		if err != nil {
+			return fmt.Errorf("error processing turn %d: %v", turn+1, err)
+		}
+
+		// Update world with the response for the next turn
+		world, worldTurn = resTurn.World, resTurn.World
+		fTurn = turn + 1
+		// Update flipped cells count or other info if necessary
+		res.FlippedCells = append(res.FlippedCells, resTurn.FlippedCells...)
+
+	}
+
+	// After completing all turns, set the final world and alive cell count in the response
+	res.World = world
+	res.Turn = fTurn
+	return nil
 }
 
 // RPC wrapper for CalculateNextState, so the client can call broker.CalculateNextState
@@ -63,7 +112,7 @@ func (b *Broker) CalculateNextState(req stubs.Request, res *stubs.Response) erro
 			EndX:   req.EndX,
 			StartY: startY,
 			EndY:   endY,
-			Turn:   req.Turn,
+			Turns:  req.Turns,
 		}
 		go func(i int) {
 			errCh <- b.servers[i].Call("GOL.CalculateNextState", subReq, &responses[i])
@@ -128,7 +177,7 @@ func (b *Broker) CalculateAliveCells(req stubs.Request, res *stubs.Response) err
 			EndX:   req.EndX,
 			StartY: startY,
 			EndY:   endY,
-			Turn:   req.Turn,
+			Turns:  req.Turns,
 		}
 		go func(i int) {
 			errCh <- b.servers[i].Call("GOL.CalculateAliveCells", subReq, &responses[i])
