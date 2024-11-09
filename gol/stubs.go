@@ -10,6 +10,10 @@ var calculateAliveCellsB = "Broker.CalculateAliveCells"
 var closingSystemB = "Broker.ClosingSystem"
 var calcutateTurnsB = "Broker.CalculateTurns"
 var TickerB = "Broker.Ticker"
+var sendWorld = "Broker.SendWorld"
+var pause = "Broker.Pause"
+var resume = "Broker.Resume"
+var closeLM = "Broker.CloseMachine"
 
 type Response struct {
 	World        [][]byte
@@ -19,11 +23,22 @@ type Response struct {
 }
 
 type Request struct {
-	World  [][]byte
-	P      Params
-	StartX int
-	EndX   int
-	StartY int
-	EndY   int
-	Turns  int
+	World    [][]byte
+	P        Params
+	StartX   int
+	EndX     int
+	StartY   int
+	EndY     int
+	TurnDone int
+	Turns    int
+}
+
+type RequestEvent struct {
+	TurnDone     int
+	FlippedCells []util.Cell
+	Alive        int
+	CallbackAddr string
+}
+
+type ResponseEvent struct {
 }

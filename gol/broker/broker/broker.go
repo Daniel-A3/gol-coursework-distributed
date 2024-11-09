@@ -15,13 +15,19 @@ import (
 
 // Broker struct to hold the RPC client for the server connection
 type Broker struct {
-	servers []*rpc.Client
-	closing chan struct{}
+	servers      []*rpc.Client
+	callbackAddr string
+	closedLM     bool
+	closing      chan struct{}
+	paused       bool
+	pausedCond   *sync.Cond
 }
 
 var mu sync.Mutex
 var worldTurn [][]byte
 var fTurn int
+
+//var flippedTurn []util.Cell
 
 // NewBroker initializes the broker by connecting to the server
 func NewBroker(serverAddrs []string) (*Broker, error) {
@@ -37,7 +43,37 @@ func NewBroker(serverAddrs []string) (*Broker, error) {
 	if len(servers) == 0 {
 		return nil, fmt.Errorf("failed to connect to any servers")
 	}
-	return &Broker{servers: servers, closing: make(chan struct{})}, nil
+	return &Broker{servers: servers, closing: make(chan struct{}), pausedCond: sync.NewCond(&mu)}, nil
+}
+
+func (b *Broker) RegisterCallback(req stubs.RequestEvent, res *struct{}) error {
+	b.callbackAddr = req.CallbackAddr
+	return nil
+}
+
+func (b *Broker) NotifyTurnComplete(turn int, flipped []util.Cell) error {
+	mu.Lock()
+	if b.callbackAddr == "" {
+		return fmt.Errorf("callback address not set")
+	}
+	client, err := rpc.Dial("tcp", b.callbackAddr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to callback address: %v", err)
+	}
+	defer client.Close()
+	req := stubs.RequestEvent{TurnDone: turn, FlippedCells: flipped}
+	res := stubs.ResponseEvent{}
+	client.Call("EventReceiver.TurnCompleteEvent", req, res)
+	mu.Unlock()
+	return nil
+}
+
+func (b *Broker) SendWorld(req stubs.Request, res *stubs.Response) error {
+	mu.Lock()
+	res.World = worldTurn
+	res.Turn = fTurn
+	mu.Unlock()
+	return nil
 }
 
 func (b *Broker) Ticker(req stubs.Request, res *stubs.Response) error {
@@ -55,7 +91,13 @@ func (b *Broker) CalculateTurns(req stubs.Request, res *stubs.Response) error {
 	numTurns := req.Turns // Number of turns to process
 	world := req.World
 	fTurn = 0
+
 	for turn := 0; turn < numTurns; turn++ {
+		mu.Lock()
+		for b.paused {
+			b.pausedCond.Wait()
+		}
+		mu.Unlock()
 		// Prepare a request for a single turn
 		reqTurn := stubs.Request{
 			World:  world,
@@ -75,12 +117,15 @@ func (b *Broker) CalculateTurns(req stubs.Request, res *stubs.Response) error {
 
 		// Update world with the response for the next turn
 		world, worldTurn = resTurn.World, resTurn.World
+		res.FlippedCells = resTurn.FlippedCells
 		fTurn = turn + 1
-		// Update flipped cells count or other info if necessary
-		res.FlippedCells = append(res.FlippedCells, resTurn.FlippedCells...)
+		b.NotifyTurnComplete(fTurn, res.FlippedCells)
+		if b.closedLM {
+			turn = numTurns
+		}
 
 	}
-
+	b.closedLM = false
 	// After completing all turns, set the final world and alive cell count in the response
 	res.World = world
 	res.Turn = fTurn
@@ -210,13 +255,35 @@ func (b *Broker) CalculateAliveCells(req stubs.Request, res *stubs.Response) err
 	return nil
 }
 
+func (b *Broker) Pause(req stubs.Request, res *stubs.Response) error {
+	mu.Lock()
+	b.paused = true
+	fmt.Println("Broker paused")
+	mu.Unlock()
+	return nil
+}
+
+func (b *Broker) Resume(req stubs.Request, res *stubs.Response) error {
+	mu.Lock()
+	b.paused = false
+	b.pausedCond.Broadcast() // Wake up any waiting computations
+	fmt.Println("Broker resumed")
+	mu.Unlock()
+	return nil
+}
+
+func (b *Broker) CloseMachine(req stubs.Request, res *stubs.Response) error {
+	b.closedLM = true
+	return nil
+}
+
 func (b *Broker) ClosingSystem(req stubs.Request, res *stubs.Response) error {
 	fmt.Println("Closing all servers and broker...")
 
 	// Close each server connection by calling their CloseSystem method
+	resClose := new(stubs.Response)
 	for _, server := range b.servers {
-		var closeResponse stubs.Response
-		err := server.Call("GOL.ClosingSystem", req, &closeResponse)
+		err := server.Call("GOL.ClosingSystem", req, resClose)
 		if err != nil {
 			fmt.Printf("Failed to close server: %v\n", err)
 		}

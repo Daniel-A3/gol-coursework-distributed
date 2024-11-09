@@ -110,6 +110,7 @@ func calculateNextState(p stubs.Params, world [][]byte, startX, endX, startY, en
 			}
 		}
 	}
+
 	return cellsFlipped, nextWorld
 }
 

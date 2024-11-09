@@ -9,6 +9,7 @@ var calculateNextStateB = "Broker.CalculateNextState"
 var calculateAliveCellsB = "Broker.CalculateAliveCells"
 var closingSystemB = "Broker.ClosingSystem"
 var calcutateTurnsB = "Broker.CalculateTurns"
+var notify = "EventReceiver.TurnCompleteEvent"
 
 type Params struct {
 	Turns       int
@@ -32,4 +33,14 @@ type Request struct {
 	StartY int
 	EndY   int
 	Turns  int
+}
+
+type RequestEvent struct {
+	TurnDone     int
+	FlippedCells []util.Cell
+	Alive        int
+	CallbackAddr string
+}
+
+type ResponseEvent struct {
 }
