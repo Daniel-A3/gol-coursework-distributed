@@ -191,9 +191,11 @@ func (gol *GOL) ClosingSystem(req stubs.Request, response *stubs.Response) error
 }
 
 func main() {
-	pAddr := flag.String("port", "127.0.0.1:8030", "Port to listen on")
+	port := flag.String("port", "8030", "Addr for broker to connect to")
+	ipAddr := flag.String("ip", "127.0.0.1", "IP address to listen on")
 	flag.Parse()
-	listener, err := net.Listen("tcp", *pAddr)
+	address := fmt.Sprintf("%s:%s", *ipAddr, *port)
+	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		fmt.Println("Error starting server:", err)
 		return
