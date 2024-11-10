@@ -171,6 +171,10 @@ func (gol *GOL) CalculateAliveCells(req stubs.Request, res *stubs.Response) erro
 	return nil
 }
 
+func (gol *GOL) Ping(req stubs.Request, res *stubs.Response) error {
+	return nil
+}
+
 func createWorld(height, width int) [][]byte {
 	world := make([][]byte, height)
 	for i := range world {

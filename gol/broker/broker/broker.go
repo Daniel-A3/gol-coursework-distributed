@@ -21,13 +21,12 @@ type Broker struct {
 	closing      chan struct{}
 	paused       bool
 	pausedCond   *sync.Cond
+	serverMutex  sync.Mutex
 }
 
 var mu sync.Mutex
 var worldTurn [][]byte
 var fTurn int
-
-//var flippedTurn []util.Cell
 
 // NewBroker initializes the broker by connecting to the server
 func NewBroker(serverAddrs []string) (*Broker, error) {
@@ -44,6 +43,48 @@ func NewBroker(serverAddrs []string) (*Broker, error) {
 		return nil, fmt.Errorf("failed to connect to any servers")
 	}
 	return &Broker{servers: servers, closing: make(chan struct{}), pausedCond: sync.NewCond(&mu)}, nil
+}
+
+// AddServer registers a new server with the broker
+func (b *Broker) AddServer(serverAddr string) error {
+	b.serverMutex.Lock()
+	defer b.serverMutex.Unlock()
+
+	client, err := rpc.Dial("tcp", serverAddr)
+	if err != nil {
+		return fmt.Errorf("Failed to connect to new server at %s: %v", serverAddr, err)
+	}
+	b.servers = append(b.servers, client)
+	fmt.Printf("New server added at %s\n", serverAddr)
+	return nil
+}
+
+// RemoveDisconnectedServer removes a server that has been disconnected
+func (b *Broker) RemoveDisconnectedServer(index int) {
+	b.serverMutex.Lock()
+	defer b.serverMutex.Unlock()
+
+	if index >= 0 && index < len(b.servers) {
+		b.servers = append(b.servers[:index], b.servers[index+1:]...)
+		fmt.Printf("Server at index %d removed due to disconnection\n", index)
+	} else {
+		fmt.Printf("Attempted to remove a server at an invalid index: %d\n", index)
+	}
+}
+
+func (b *Broker) healthCheck() {
+	for i := len(b.servers) - 1; i >= 0; i-- { // Iterate in reverse order
+		if !b.isServerAlive(b.servers[i]) {
+			// Remove the server if it's unresponsive
+			b.RemoveDisconnectedServer(i)
+			fmt.Printf("Server at index %d disconnected and was removed.\n", i)
+		}
+	}
+}
+
+func (b *Broker) isServerAlive(client *rpc.Client) bool {
+	err := client.Call("GOL.Ping", stubs.Request{}, &stubs.Response{})
+	return err == nil
 }
 
 func (b *Broker) RegisterCallback(req stubs.RequestEvent, res *struct{}) error {
@@ -135,6 +176,9 @@ func (b *Broker) CalculateTurns(req stubs.Request, res *stubs.Response) error {
 // RPC wrapper for CalculateNextState, so the client can call broker.CalculateNextState
 func (b *Broker) CalculateNextState(req stubs.Request, res *stubs.Response) error {
 	numServers := len(b.servers)
+	if numServers == 0 {
+		return fmt.Errorf("no servers available to handle the workload")
+	}
 	heightPerServer := (req.EndY - req.StartY) / numServers
 	extraHeight := (req.EndY - req.StartY) % numServers
 	responses := make([]stubs.Response, numServers)
@@ -166,10 +210,21 @@ func (b *Broker) CalculateNextState(req stubs.Request, res *stubs.Response) erro
 	}
 
 	// Collect responses
+	var hasErrors bool
 	for i := 0; i < numServers; i++ {
 		if err := <-errCh; err != nil {
-			return fmt.Errorf("error from server %d: %v", i, err)
+			hasErrors = true
+			//return fmt.Errorf("error from server %d: %v", i, err)
 		}
+	}
+	if hasErrors {
+		b.healthCheck()
+		if len(b.servers) > 0 {
+			fmt.Println("Redistributing workload among remaining servers...")
+			return b.CalculateNextState(req, res) // Retry with updated server list
+		}
+		// Return an error if no servers are left to retry with
+		return fmt.Errorf("all servers are unavailable or disconnected")
 	}
 
 	// Aggregate results from responses
@@ -201,6 +256,9 @@ func (b *Broker) CalculateNextState(req stubs.Request, res *stubs.Response) erro
 
 func (b *Broker) CalculateAliveCells(req stubs.Request, res *stubs.Response) error {
 	numServers := len(b.servers)
+	if numServers == 0 {
+		return fmt.Errorf("no servers available to handle the workload")
+	}
 	heightPerServer := (req.EndY - req.StartY) / numServers
 	extraHeight := (req.EndY - req.StartY) % numServers
 	responses := make([]stubs.Response, numServers)
