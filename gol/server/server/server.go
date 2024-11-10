@@ -191,9 +191,9 @@ func (gol *GOL) ClosingSystem(req stubs.Request, response *stubs.Response) error
 }
 
 func main() {
-	pAddr := flag.String("port", "8030", "Port to listen on")
+	pAddr := flag.String("port", "127.0.0.1:8030", "Port to listen on")
 	flag.Parse()
-	listener, err := net.Listen("tcp", ":"+*pAddr)
+	listener, err := net.Listen("tcp", *pAddr)
 	if err != nil {
 		fmt.Println("Error starting server:", err)
 		return
