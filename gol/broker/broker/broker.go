@@ -153,7 +153,11 @@ func (b *Broker) CalculateTurns(req stubs.Request, res *stubs.Response) error {
 		resTurn := new(stubs.Response)
 		err := b.CalculateNextState(reqTurn, resTurn)
 		if err != nil {
-			return fmt.Errorf("error processing turn %d: %v", turn+1, err)
+			fmt.Printf("error processing turn %d: %v\n", turn+1, err)
+			break
+		}
+		if len(b.servers) == 0 {
+			break
 		}
 
 		// Update world with the response for the next turn
@@ -162,7 +166,7 @@ func (b *Broker) CalculateTurns(req stubs.Request, res *stubs.Response) error {
 		fTurn = turn + 1
 		b.NotifyTurnComplete(fTurn, res.FlippedCells)
 		if b.closedLM {
-			turn = numTurns
+			break
 		}
 
 	}
@@ -223,8 +227,8 @@ func (b *Broker) CalculateNextState(req stubs.Request, res *stubs.Response) erro
 			fmt.Println("Redistributing workload among remaining servers...")
 			return b.CalculateNextState(req, res) // Retry with updated server list
 		}
-		// Return an error if no servers are left to retry with
-		return fmt.Errorf("all servers are unavailable or disconnected")
+		fmt.Println("all servers are unavailable or disconnected")
+		return nil
 	}
 
 	// Aggregate results from responses
