@@ -200,6 +200,7 @@ func main() {
 		fmt.Println("Error starting server:", err)
 		return
 	}
+	fmt.Printf("Listening on :%s\n", address)
 	defer listener.Close()
 	rpc.Register(&GOL{})
 	go func(listener net.Listener) {
