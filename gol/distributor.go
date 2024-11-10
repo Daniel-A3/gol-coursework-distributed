@@ -30,8 +30,8 @@ var quitEverything = false
 var turn = 0
 
 func (receiver *EventReceiver) TurnCompleteEvent(req RequestEvent, response *ResponseEvent) error {
+	receiver.c.events <- CellsFlipped{Cells: req.FlippedCells, CompletedTurns: req.TurnDone}
 	receiver.c.events <- TurnComplete{CompletedTurns: req.TurnDone}
-	receiver.c.events <- CellsFlipped{Cells: req.FlippedCells}
 	turn = req.TurnDone
 	return nil
 }

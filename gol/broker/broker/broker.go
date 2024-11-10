@@ -27,6 +27,7 @@ type Broker struct {
 var mu sync.Mutex
 var worldTurn [][]byte
 var fTurn int
+var muNotify sync.Mutex
 
 // NewBroker initializes the broker by connecting to the server
 func NewBroker(serverAddrs []string) (*Broker, error) {
@@ -93,7 +94,7 @@ func (b *Broker) RegisterCallback(req stubs.RequestEvent, res *struct{}) error {
 }
 
 func (b *Broker) NotifyTurnComplete(turn int, flipped []util.Cell) error {
-	mu.Lock()
+	muNotify.Lock()
 	if b.callbackAddr == "" {
 		return fmt.Errorf("callback address not set")
 	}
@@ -105,7 +106,7 @@ func (b *Broker) NotifyTurnComplete(turn int, flipped []util.Cell) error {
 	req := stubs.RequestEvent{TurnDone: turn, FlippedCells: flipped}
 	res := stubs.ResponseEvent{}
 	client.Call("EventReceiver.TurnCompleteEvent", req, res)
-	mu.Unlock()
+	muNotify.Unlock()
 	return nil
 }
 
@@ -132,6 +133,7 @@ func (b *Broker) CalculateTurns(req stubs.Request, res *stubs.Response) error {
 	numTurns := req.Turns // Number of turns to process
 	world := req.World
 	fTurn = 0
+	var muTurn sync.Mutex
 
 	for turn := 0; turn < numTurns; turn++ {
 		mu.Lock()
@@ -161,10 +163,12 @@ func (b *Broker) CalculateTurns(req stubs.Request, res *stubs.Response) error {
 		}
 
 		// Update world with the response for the next turn
+		muTurn.Lock()
 		world, worldTurn = resTurn.World, resTurn.World
 		res.FlippedCells = resTurn.FlippedCells
 		fTurn = turn + 1
 		b.NotifyTurnComplete(fTurn, res.FlippedCells)
+		muTurn.Unlock()
 		if b.closedLM {
 			break
 		}
