@@ -14,10 +14,14 @@ type GOL struct{}
 
 var upperRow []byte
 var lowerRow []byte
+var muRows sync.Mutex
+
 var muHalo sync.Mutex
+var genError bool
 
 func getHalo(addrs []string, halo [][]byte) [][]byte {
 	muHalo.Lock()
+	defer muHalo.Unlock()
 	var index int
 	for i, addr := range addrs {
 		if addr == address {
@@ -28,6 +32,7 @@ func getHalo(addrs []string, halo [][]byte) [][]byte {
 	if len(addrs) == 1 {
 		halo[0] = lowerRow
 		halo[1] = upperRow
+		return halo
 	}
 	// Calculate addresses for above and below servers
 	aboveIndex := (index - 1 + len(addrs)) % len(addrs)
@@ -42,6 +47,10 @@ func getHalo(addrs []string, halo [][]byte) [][]byte {
 		if err := clientAbove.Call("GOL.SendRow", reqA, resA); err == nil {
 			halo[0] = resA.Row
 		}
+	} else {
+		fmt.Println("Error calling above")
+		genError = true
+		return halo
 	}
 
 	clientBelow, err := rpc.Dial("tcp", addrs[belowIndex])
@@ -52,12 +61,17 @@ func getHalo(addrs []string, halo [][]byte) [][]byte {
 		if err := clientBelow.Call("GOL.SendRow", reqB, resB); err == nil {
 			halo[len(halo)-1] = resB.Row
 		}
+	} else {
+		fmt.Println("Error calling below")
+		genError = true
+		return halo
 	}
-	muHalo.Unlock()
 	return halo
 }
 
 func (gol *GOL) SendRow(req stubs.ServerRequest, res *stubs.ServerResponse) error {
+	muRows.Lock()
+	defer muRows.Unlock()
 	if req.Above == true {
 		res.Row = lowerRow
 	} else {
@@ -70,16 +84,22 @@ func (gol *GOL) SendRow(req stubs.ServerRequest, res *stubs.ServerResponse) erro
 var muNextState sync.Mutex
 
 func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error {
-	muNextState.Lock()
+	muRows.Lock()
 	upperRow = req.World[0]
 	lowerRow = req.World[len(req.World)-1]
-	muNextState.Unlock()
+	muRows.Unlock()
+
 	height := req.EndY - req.StartY
 	width := req.EndX - req.StartX
+
 	nextWorld := createWorld(height, width)
+
 	haloWorld := make([][]byte, height+2)
 	halo := make([][]byte, 2)
 	halo = getHalo(req.ServerAddr, halo)
+	if genError {
+		return fmt.Errorf("error occured")
+	}
 	muNextState.Lock()
 	haloWorld[0] = halo[0]
 	for i := 0; i < height; i++ {
@@ -102,6 +122,7 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 	flippedCells := make([][]util.Cell, numWorkers) // Slice to store flipped cells from each worker
 	worlds := make([][][]byte, numWorkers)          // Slice to store partial nextWorlds from each worker
 	startY := req.StartY
+	//time.Sleep(2 * time.Millisecond)
 	for w := 0; w < numWorkers; w++ {
 		endY := startY + rowsPerWorker
 		if w < extraRows {

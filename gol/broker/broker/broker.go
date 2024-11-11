@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/rpc"
 	"os"
-	"strings"
 	"sync"
 	"uk.ac.bris.cs/gameoflife/gol/broker/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
@@ -30,7 +29,7 @@ var fTurn int
 var muNotify sync.Mutex
 
 // NewBroker initializes the broker by connecting to the server
-func NewBroker(serverAddrs []string) (*Broker, error) {
+func NewBroker() (*Broker, error) {
 	var servers []*rpc.Client
 	for _, addr := range serverAddrs {
 		client, err := rpc.Dial("tcp", addr)
@@ -64,6 +63,7 @@ func (b *Broker) RemoveDisconnectedServer(index int) {
 
 	if index >= 0 && index < len(b.servers) {
 		b.servers = append(b.servers[:index], b.servers[index+1:]...)
+		fmt.Println("before removing", serverAddrs)
 		serverAddrs = append(serverAddrs[:index], serverAddrs[index+1:]...)
 		fmt.Printf("Server at index %d removed due to disconnection\n", index)
 	} else {
@@ -76,7 +76,7 @@ func (b *Broker) healthCheck() {
 		if !b.isServerAlive(b.servers[i]) {
 			// Remove the server if it's unresponsive
 			b.RemoveDisconnectedServer(i)
-			fmt.Printf("Server at index %d disconnected and was removed.\n", i)
+			fmt.Println("New server list: ", serverAddrs)
 		}
 	}
 }
@@ -403,12 +403,12 @@ func StartRPCServer(broker *Broker, brokerAddr string) error {
 var serverAddrs []string
 
 func main() {
-	serversFlag := flag.String("servers", "127.0.0.1:8030", "Comma-separated list of server addresses")
+	//serversFlag := flag.String("servers", "", "Comma-separated list of server addresses")
 	brokerAddr := flag.String("brokerAddr", "127.0.0.1:8050", "Broker address for client to connect")
 	flag.Parse()
-	serverAddrs = strings.Split(*serversFlag, ",")
+	//serverAddrs = strings.Split(*serversFlag, ",")
 	// Connect broker to the server
-	broker, err := NewBroker(serverAddrs)
+	broker, err := NewBroker()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
