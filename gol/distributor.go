@@ -43,16 +43,6 @@ func retrieveWorld(client *rpc.Client) ([][]byte, int) {
 	return res.World, res.Turn
 }
 
-func closeServer(client *rpc.Client) {
-	request := Request{}
-	response := new(Response)
-	err := client.Call(closingSystemB, request, response)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-}
-
 func sendFinalState(client *rpc.Client, p Params, world [][]byte, c distributorChannels, turn int) {
 	reqA := Request{World: world, P: p, StartX: 0, EndX: p.ImageWidth, StartY: 0, EndY: p.ImageHeight, Turns: turn}
 	resA := new(Response)
@@ -117,15 +107,14 @@ func distributor(p Params, c distributorChannels) {
 	go func() {
 		resT := new(Response)
 		for range ticker.C {
-			if !gamePaused {
-				mu.Lock()
-				reqT := Request{P: p, StartX: 0, EndX: p.ImageWidth, StartY: 0, EndY: p.ImageHeight}
-				client.Call(TickerB, reqT, resT)
-				if resT.Turn != 0 {
-					c.events <- AliveCellsCount{CompletedTurns: resT.Turn, CellsCount: resT.Alive}
-				}
-				mu.Unlock()
+			mu.Lock()
+			reqT := Request{P: p, StartX: 0, EndX: p.ImageWidth, StartY: 0, EndY: p.ImageHeight}
+			client.Call(TickerB, reqT, resT)
+			if resT.Turn != 0 && !gamePaused {
+				c.events <- AliveCellsCount{CompletedTurns: resT.Turn, CellsCount: resT.Alive}
 			}
+			mu.Unlock()
+
 		}
 	}()
 
