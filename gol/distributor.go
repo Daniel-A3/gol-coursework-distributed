@@ -107,15 +107,14 @@ func distributor(p Params, c distributorChannels) {
 	go func() {
 		resT := new(Response)
 		for range ticker.C {
-			if !gamePaused {
-				mu.Lock()
-				reqT := Request{P: p, StartX: 0, EndX: p.ImageWidth, StartY: 0, EndY: p.ImageHeight}
-				client.Call(TickerB, reqT, resT)
-				if resT.Turn != 0 {
-					c.events <- AliveCellsCount{CompletedTurns: resT.Turn, CellsCount: resT.Alive}
-				}
-				mu.Unlock()
+			mu.Lock()
+			reqT := Request{P: p, StartX: 0, EndX: p.ImageWidth, StartY: 0, EndY: p.ImageHeight}
+			client.Call(TickerB, reqT, resT)
+			if resT.Turn != 0 && !gamePaused {
+				c.events <- AliveCellsCount{CompletedTurns: resT.Turn, CellsCount: resT.Alive}
 			}
+			mu.Unlock()
+
 		}
 	}()
 
