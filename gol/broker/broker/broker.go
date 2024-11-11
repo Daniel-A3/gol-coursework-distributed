@@ -8,6 +8,7 @@ import (
 	"net/rpc"
 	"os"
 	"sync"
+	"time"
 	"uk.ac.bris.cs/gameoflife/gol/broker/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -141,12 +142,13 @@ func (b *Broker) CalculateTurns(req stubs.Request, res *stubs.Response) error {
 		mu.Unlock()
 		// Prepare a request for a single turn
 		reqTurn := stubs.Request{
-			World:  world,
-			P:      req.P,
-			StartX: req.StartX,
-			EndX:   req.EndX,
-			StartY: req.StartY,
-			EndY:   req.EndY,
+			World:     world,
+			P:         req.P,
+			StartX:    req.StartX,
+			EndX:      req.EndX,
+			StartY:    req.StartY,
+			EndY:      req.EndY,
+			TurnDoing: turn + 1,
 		}
 
 		// Call CalculateNextState for each turn
@@ -209,6 +211,7 @@ func (b *Broker) CalculateNextState(req stubs.Request, res *stubs.Response) erro
 			EndY:       endY,
 			Turns:      req.Turns,
 			ServerAddr: serverAddrs,
+			TurnDoing:  req.TurnDoing,
 		}
 		go func(i int) {
 			errCh <- b.servers[i].Call("GOL.CalculateNextState", subReq, &responses[i])
@@ -226,6 +229,7 @@ func (b *Broker) CalculateNextState(req stubs.Request, res *stubs.Response) erro
 	}
 	if hasErrors {
 		b.healthCheck()
+		time.Sleep(10 * time.Millisecond)
 		if len(b.servers) > 0 {
 			fmt.Println("Redistributing workload among remaining servers...")
 			return b.CalculateNextState(req, res) // Retry with updated server list

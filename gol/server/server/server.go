@@ -6,22 +6,23 @@ import (
 	"net"
 	"net/rpc"
 	"sync"
+	"time"
 	"uk.ac.bris.cs/gameoflife/gol/server/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
-type GOL struct{}
+type GOL struct {
+	upperRow []byte
+	lowerRow []byte
+	muRows   sync.Mutex
+	turn     int
+}
 
-var upperRow []byte
-var lowerRow []byte
-var muRows sync.Mutex
-
-var muHalo sync.Mutex
 var genError bool
+var clientPool = make(map[string]*rpc.Client)
+var muClientPool sync.Mutex
 
-func getHalo(addrs []string, halo [][]byte) [][]byte {
-	muHalo.Lock()
-	defer muHalo.Unlock()
+func (gol *GOL) getHalo(addrs []string, halo [][]byte) [][]byte {
 	var index int
 	for i, addr := range addrs {
 		if addr == address {
@@ -30,52 +31,79 @@ func getHalo(addrs []string, halo [][]byte) [][]byte {
 		}
 	}
 	if len(addrs) == 1 {
-		halo[0] = lowerRow
-		halo[1] = upperRow
+		halo[0] = gol.lowerRow
+		halo[1] = gol.upperRow
 		return halo
 	}
-	// Calculate addresses for above and below servers
+
 	aboveIndex := (index - 1 + len(addrs)) % len(addrs)
 	belowIndex := (index + 1) % len(addrs)
 
-	// Fetch rows from above and below servers
-	clientAbove, err := rpc.Dial("tcp", addrs[aboveIndex])
-	if err == nil {
-		defer clientAbove.Close()
-		reqA := stubs.ServerRequest{Above: true}
-		resA := new(stubs.ServerResponse)
-		if err := clientAbove.Call("GOL.SendRow", reqA, resA); err == nil {
-			halo[0] = resA.Row
-		}
-	} else {
-		fmt.Println("Error calling above")
+	halo[0] = gol.fetchWithRetry(addrs[aboveIndex], true, 3)  // Fetch above row
+	halo[1] = gol.fetchWithRetry(addrs[belowIndex], false, 3) // Fetch below row
+
+	if halo[0] == nil || halo[1] == nil {
+		fmt.Println("FAIL HALO")
 		genError = true
 		return halo
 	}
 
-	clientBelow, err := rpc.Dial("tcp", addrs[belowIndex])
-	if err == nil {
-		defer clientBelow.Close()
-		reqB := stubs.ServerRequest{Above: false}
-		resB := new(stubs.ServerResponse)
-		if err := clientBelow.Call("GOL.SendRow", reqB, resB); err == nil {
-			halo[len(halo)-1] = resB.Row
-		}
-	} else {
-		fmt.Println("Error calling below")
-		genError = true
-		return halo
-	}
 	return halo
 }
 
+func (gol *GOL) fetchHaloRow(addr string, above bool) []byte {
+	client := getClient(addr)
+	if client == nil {
+		return nil
+	}
+
+	req := stubs.ServerRequest{Above: above, TurnDoing: gol.turn}
+	res := new(stubs.ServerResponse)
+	if err := client.Call("GOL.SendRow", req, res); err != nil {
+		fmt.Println("Error in RPC call:", err)
+		return nil
+	}
+	return res.Row
+}
+func (gol *GOL) fetchWithRetry(addr string, above bool, maxRetries int) []byte {
+	for i := 0; i < maxRetries; i++ {
+		row := gol.fetchHaloRow(addr, above)
+		if row != nil {
+			return row
+		}
+		time.Sleep(10 * time.Millisecond) // Small delay before retrying
+	}
+	fmt.Println("Failed to fetch halo row after retries")
+	return nil
+}
+
+func getClient(addr string) *rpc.Client {
+	muClientPool.Lock()
+	defer muClientPool.Unlock()
+
+	if client, exists := clientPool[addr]; exists {
+		return client
+	}
+
+	client, err := rpc.Dial("tcp", addr)
+	if err != nil {
+		fmt.Println("Error dialing:", err)
+		return nil
+	}
+
+	clientPool[addr] = client
+	return client
+}
+
 func (gol *GOL) SendRow(req stubs.ServerRequest, res *stubs.ServerResponse) error {
-	muRows.Lock()
-	defer muRows.Unlock()
-	if req.Above == true {
-		res.Row = lowerRow
-	} else {
-		res.Row = upperRow
+	gol.muRows.Lock()
+	defer gol.muRows.Unlock()
+	if req.TurnDoing == gol.turn {
+		if req.Above == true {
+			res.Row = gol.lowerRow
+		} else {
+			res.Row = gol.upperRow
+		}
 	}
 
 	return nil
@@ -84,10 +112,11 @@ func (gol *GOL) SendRow(req stubs.ServerRequest, res *stubs.ServerResponse) erro
 var muNextState sync.Mutex
 
 func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error {
-	muRows.Lock()
-	upperRow = req.World[0]
-	lowerRow = req.World[len(req.World)-1]
-	muRows.Unlock()
+	gol.muRows.Lock()
+	gol.upperRow = req.World[0]
+	gol.lowerRow = req.World[len(req.World)-1]
+	gol.turn = req.TurnDoing
+	gol.muRows.Unlock()
 
 	height := req.EndY - req.StartY
 	width := req.EndX - req.StartX
@@ -96,7 +125,7 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 
 	haloWorld := make([][]byte, height+2)
 	halo := make([][]byte, 2)
-	halo = getHalo(req.ServerAddr, halo)
+	halo = gol.getHalo(req.ServerAddr, halo)
 	if genError {
 		return fmt.Errorf("error occured")
 	}
@@ -122,7 +151,6 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 	flippedCells := make([][]util.Cell, numWorkers) // Slice to store flipped cells from each worker
 	worlds := make([][][]byte, numWorkers)          // Slice to store partial nextWorlds from each worker
 	startY := req.StartY
-	//time.Sleep(2 * time.Millisecond)
 	for w := 0; w < numWorkers; w++ {
 		endY := startY + rowsPerWorker
 		if w < extraRows {
@@ -140,7 +168,8 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 	}
 
 	wg.Wait()
-
+	muNextState.Lock()
+	defer muNextState.Unlock()
 	// Combine results from workers
 	for _, flipped := range flippedCells {
 		cF = append(cF, flipped...)
@@ -281,6 +310,19 @@ func (gol *GOL) ClosingSystem(req stubs.Request, response *stubs.Response) error
 	close(closingServer)
 	return nil
 }
+func closeClients() {
+	muClientPool.Lock()
+	defer muClientPool.Unlock()
+
+	for addr, client := range clientPool {
+		if err := client.Close(); err != nil {
+			fmt.Printf("Error closing client for %s: %v\n", addr, err)
+		} else {
+			fmt.Printf("Closed client for %s\n", addr)
+		}
+		delete(clientPool, addr) // Remove from the pool after closing
+	}
+}
 
 var address string
 var broker = flag.String("broker", "127.0.0.1:8050", "IP:port string to connect to broker")
@@ -313,6 +355,7 @@ func main() {
 		<-closingServer
 		listener.Close()
 	}(listener)
+	defer closeClients()
 	for {
 		conn, err := listener.Accept()
 		if err != nil {

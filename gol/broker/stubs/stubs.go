@@ -35,6 +35,7 @@ type Request struct {
 	EndY       int
 	Turns      int
 	ServerAddr []string
+	TurnDoing  int
 }
 
 type RequestEvent struct {
