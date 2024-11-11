@@ -7,8 +7,8 @@ import (
 	"net"
 	"net/rpc"
 	"os"
-	"strings"
 	"sync"
+	"time"
 	"uk.ac.bris.cs/gameoflife/gol/broker/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -30,7 +30,7 @@ var fTurn int
 var muNotify sync.Mutex
 
 // NewBroker initializes the broker by connecting to the server
-func NewBroker(serverAddrs []string) (*Broker, error) {
+func NewBroker() (*Broker, error) {
 	var servers []*rpc.Client
 	for _, addr := range serverAddrs {
 		client, err := rpc.Dial("tcp", addr)
@@ -47,8 +47,7 @@ func NewBroker(serverAddrs []string) (*Broker, error) {
 func (b *Broker) AddServer(req stubs.BrokerRequest, res *stubs.BrokerResponse) error {
 	b.serverMutex.Lock()
 	defer b.serverMutex.Unlock()
-	b.healthCheck()
-	serversAddrs = append(serversAddrs, req.Addr)
+	serverAddrs = append(serverAddrs, req.Addr)
 	client, err := rpc.Dial("tcp", req.Addr)
 	if err != nil {
 		return fmt.Errorf("Failed to connect to new server at %s: %v", req.Addr, err)
@@ -65,6 +64,8 @@ func (b *Broker) RemoveDisconnectedServer(index int) {
 
 	if index >= 0 && index < len(b.servers) {
 		b.servers = append(b.servers[:index], b.servers[index+1:]...)
+		fmt.Println("before removing", serverAddrs)
+		serverAddrs = append(serverAddrs[:index], serverAddrs[index+1:]...)
 		fmt.Printf("Server at index %d removed due to disconnection\n", index)
 	} else {
 		fmt.Printf("Attempted to remove a server at an invalid index: %d\n", index)
@@ -76,7 +77,7 @@ func (b *Broker) healthCheck() {
 		if !b.isServerAlive(b.servers[i]) {
 			// Remove the server if it's unresponsive
 			b.RemoveDisconnectedServer(i)
-			fmt.Printf("Server at index %d disconnected and was removed.\n", i)
+			fmt.Println("New server list: ", serverAddrs)
 		}
 	}
 }
@@ -131,7 +132,7 @@ func (b *Broker) CalculateTurns(req stubs.Request, res *stubs.Response) error {
 	numTurns := req.Turns // Number of turns to process
 	world := req.World
 	fTurn = 0
-	var muTurn sync.Mutex
+	//var muTurn sync.Mutex
 
 	for turn := 0; turn < numTurns; turn++ {
 		mu.Lock()
@@ -141,12 +142,13 @@ func (b *Broker) CalculateTurns(req stubs.Request, res *stubs.Response) error {
 		mu.Unlock()
 		// Prepare a request for a single turn
 		reqTurn := stubs.Request{
-			World:  world,
-			P:      req.P,
-			StartX: req.StartX,
-			EndX:   req.EndX,
-			StartY: req.StartY,
-			EndY:   req.EndY,
+			World:     world,
+			P:         req.P,
+			StartX:    req.StartX,
+			EndX:      req.EndX,
+			StartY:    req.StartY,
+			EndY:      req.EndY,
+			TurnDoing: turn + 1,
 		}
 
 		// Call CalculateNextState for each turn
@@ -161,12 +163,12 @@ func (b *Broker) CalculateTurns(req stubs.Request, res *stubs.Response) error {
 		}
 
 		// Update world with the response for the next turn
-		muTurn.Lock()
+		mu.Lock()
 		world, worldTurn = resTurn.World, resTurn.World
 		res.FlippedCells = resTurn.FlippedCells
 		fTurn = turn + 1
 		b.NotifyTurnComplete(fTurn, res.FlippedCells)
-		muTurn.Unlock()
+		mu.Unlock()
 		if b.closedLM {
 			break
 		}
@@ -198,16 +200,18 @@ func (b *Broker) CalculateNextState(req stubs.Request, res *stubs.Response) erro
 			numRows++
 		}
 		endY := startY + numRows
-
+		subWorld := req.World[startY:endY]
 		// Prepare request for each server
 		subReq := stubs.Request{
-			World:  req.World,
-			P:      req.P,
-			StartX: req.StartX,
-			EndX:   req.EndX,
-			StartY: startY,
-			EndY:   endY,
-			Turns:  req.Turns,
+			World:      subWorld,
+			P:          req.P,
+			StartX:     req.StartX,
+			EndX:       req.EndX,
+			StartY:     startY,
+			EndY:       endY,
+			Turns:      req.Turns,
+			ServerAddr: serverAddrs,
+			TurnDoing:  req.TurnDoing,
 		}
 		go func(i int) {
 			errCh <- b.servers[i].Call("GOL.CalculateNextState", subReq, &responses[i])
@@ -225,6 +229,7 @@ func (b *Broker) CalculateNextState(req stubs.Request, res *stubs.Response) erro
 	}
 	if hasErrors {
 		b.healthCheck()
+		time.Sleep(10 * time.Millisecond)
 		if len(b.servers) > 0 {
 			fmt.Println("Redistributing workload among remaining servers...")
 			return b.CalculateNextState(req, res) // Retry with updated server list
@@ -234,7 +239,8 @@ func (b *Broker) CalculateNextState(req stubs.Request, res *stubs.Response) erro
 	}
 
 	// Aggregate results from responses
-	startY = 0
+	mu.Lock()
+	startY = req.StartY
 	res.World = func(req stubs.Request) [][]byte {
 		newWorld := req.World
 		for j := 0; j < numServers; j++ {
@@ -246,10 +252,12 @@ func (b *Broker) CalculateNextState(req stubs.Request, res *stubs.Response) erro
 			endY := startY + numRows
 			copy(newWorld[startY:endY], responses[j].World)
 			startY = endY
+
 		}
 		return newWorld
 
 	}(req)
+	mu.Unlock()
 	res.FlippedCells = func(responses []stubs.Response) []util.Cell {
 		var fc []util.Cell
 		for _, s := range responses {
@@ -396,15 +404,15 @@ func StartRPCServer(broker *Broker, brokerAddr string) error {
 	}
 }
 
-var serversAddrs []string
+var serverAddrs []string
 
 func main() {
-	serversFlag := flag.String("servers", "127.0.0.1:8030", "Comma-separated list of server addresses")
+	//serversFlag := flag.String("servers", "", "Comma-separated list of server addresses")
 	brokerAddr := flag.String("brokerAddr", "127.0.0.1:8050", "Broker address for client to connect")
 	flag.Parse()
-	serversAddrs = strings.Split(*serversFlag, ",")
+	//serverAddrs = strings.Split(*serversFlag, ",")
 	// Connect broker to the server
-	broker, err := NewBroker(serversAddrs)
+	broker, err := NewBroker()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
