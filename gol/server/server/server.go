@@ -190,6 +190,8 @@ func (gol *GOL) ClosingSystem(req stubs.Request, response *stubs.Response) error
 	return nil
 }
 
+var broker = flag.String("broker", "127.0.0.1:8050", "IP:port string to connect to broker")
+
 func main() {
 	port := flag.String("port", "8030", "Addr for broker to connect to")
 	ipAddr := flag.String("ip", "127.0.0.1", "IP address to listen on")
@@ -203,6 +205,18 @@ func main() {
 	fmt.Printf("Listening on :%s\n", address)
 	defer listener.Close()
 	rpc.Register(&GOL{})
+
+	client, _ := rpc.Dial("tcp", *broker)
+	defer func(client *rpc.Client) {
+		err := client.Close()
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(client)
+	req := stubs.BrokerRequest{Addr: address}
+	res := new(stubs.BrokerResponse)
+	client.Call("Broker.AddServer", req, res)
+
 	go func(listener net.Listener) {
 		<-closingServer
 		listener.Close()
@@ -213,6 +227,6 @@ func main() {
 			fmt.Println("Closing server...")
 			break
 		}
-		rpc.ServeConn(conn)
+		go rpc.ServeConn(conn)
 	}
 }

@@ -45,3 +45,9 @@ type RequestEvent struct {
 
 type ResponseEvent struct {
 }
+
+type BrokerRequest struct {
+	Addr string
+}
+type BrokerResponse struct {
+}

@@ -32,3 +32,9 @@ type Request struct {
 	Turns        int
 	CallbackAddr string
 }
+
+type BrokerRequest struct {
+	Addr string
+}
+type BrokerResponse struct {
+}

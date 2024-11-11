@@ -40,23 +40,21 @@ func NewBroker(serverAddrs []string) (*Broker, error) {
 		}
 		servers = append(servers, client)
 	}
-	if len(servers) == 0 {
-		return nil, fmt.Errorf("failed to connect to any servers")
-	}
 	return &Broker{servers: servers, closing: make(chan struct{}), pausedCond: sync.NewCond(&mu)}, nil
 }
 
 // AddServer registers a new server with the broker
-func (b *Broker) AddServer(serverAddr string) error {
+func (b *Broker) AddServer(req stubs.BrokerRequest, res *stubs.BrokerResponse) error {
 	b.serverMutex.Lock()
 	defer b.serverMutex.Unlock()
-
-	client, err := rpc.Dial("tcp", serverAddr)
+	b.healthCheck()
+	serversAddrs = append(serversAddrs, req.Addr)
+	client, err := rpc.Dial("tcp", req.Addr)
 	if err != nil {
-		return fmt.Errorf("Failed to connect to new server at %s: %v", serverAddr, err)
+		return fmt.Errorf("Failed to connect to new server at %s: %v", req.Addr, err)
 	}
 	b.servers = append(b.servers, client)
-	fmt.Printf("New server added at %s\n", serverAddr)
+	fmt.Printf("New server added at %s\n", req.Addr)
 	return nil
 }
 
@@ -398,13 +396,15 @@ func StartRPCServer(broker *Broker, brokerAddr string) error {
 	}
 }
 
+var serversAddrs []string
+
 func main() {
 	serversFlag := flag.String("servers", "127.0.0.1:8030", "Comma-separated list of server addresses")
 	brokerAddr := flag.String("brokerAddr", "127.0.0.1:8050", "Broker address for client to connect")
 	flag.Parse()
-	serverAddrs := strings.Split(*serversFlag, ",")
+	serversAddrs = strings.Split(*serversFlag, ",")
 	// Connect broker to the server
-	broker, err := NewBroker(serverAddrs)
+	broker, err := NewBroker(serversAddrs)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
