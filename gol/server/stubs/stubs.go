@@ -23,14 +23,30 @@ type Response struct {
 }
 
 type Request struct {
-	World        [][]byte
-	P            Params
-	StartX       int
-	EndX         int
-	StartY       int
-	EndY         int
-	Turns        int
-	CallbackAddr string
+	World      [][]byte
+	P          Params
+	StartX     int
+	EndX       int
+	StartY     int
+	EndY       int
+	Turns      int
+	ServerAddr []string
+	TurnDoing  int
+}
+
+type ServerRequest struct {
+	Above     bool
+	TurnDoing int
+}
+
+type ServerResponse struct {
+	Row []byte
+}
+
+type BrokerRequest struct {
+	Addr string
+}
+type BrokerResponse struct {
 }
 
 type BrokerRequest struct {

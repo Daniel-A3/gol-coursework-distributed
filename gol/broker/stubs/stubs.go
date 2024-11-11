@@ -27,13 +27,15 @@ type Response struct {
 }
 
 type Request struct {
-	World  [][]byte
-	P      Params
-	StartX int
-	EndX   int
-	StartY int
-	EndY   int
-	Turns  int
+	World      [][]byte
+	P          Params
+	StartX     int
+	EndX       int
+	StartY     int
+	EndY       int
+	Turns      int
+	ServerAddr []string
+	TurnDoing  int
 }
 
 type RequestEvent struct {
@@ -46,6 +48,17 @@ type RequestEvent struct {
 type ResponseEvent struct {
 }
 
+<<<<<<< HEAD
+=======
+type ServerRequest struct {
+	Above bool
+}
+
+type ServerResponse struct {
+	Row []byte
+}
+
+>>>>>>> Attemptedhalomore
 type BrokerRequest struct {
 	Addr string
 }
