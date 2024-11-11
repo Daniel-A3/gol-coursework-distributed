@@ -326,7 +326,7 @@ func closeClients() {
 
 var address string
 var broker = flag.String("broker", "127.0.0.1:8050", "IP:port string to connect to broker")
-var maxWorkers = flag.Int("maxWorkers", 16, "Maximum amount of workers wanted")
+var maxWorkers = flag.Int("maxWorkers", 32, "Maximum amount of workers wanted")
 
 func main() {
 	port := flag.String("port", "8030", "Addr for broker to connect to")

@@ -83,7 +83,7 @@ func distributor(p Params, c distributorChannels) {
 	listener, err := net.Listen("tcp", addr)
 	defer listener.Close()
 	if err != nil {
-		fmt.Printf("failed to listen on %s: %v", localAddr, err)
+		fmt.Printf("failed to listen on %s: %v", addr, err)
 		os.Exit(1)
 	}
 	go server.Accept(listener)
