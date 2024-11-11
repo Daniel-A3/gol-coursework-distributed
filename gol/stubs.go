@@ -23,14 +23,14 @@ type Response struct {
 }
 
 type Request struct {
-	World    [][]byte
-	P        Params
-	StartX   int
-	EndX     int
-	StartY   int
-	EndY     int
-	TurnDone int
-	Turns    int
+	World      [][]byte
+	P          Params
+	StartX     int
+	EndX       int
+	StartY     int
+	EndY       int
+	Turns      int
+	ServerAddr []string
 }
 
 type RequestEvent struct {
@@ -41,4 +41,12 @@ type RequestEvent struct {
 }
 
 type ResponseEvent struct {
+}
+
+type ServerRequest struct {
+	Above bool
+}
+
+type ServerResponse struct {
+	Row []byte
 }

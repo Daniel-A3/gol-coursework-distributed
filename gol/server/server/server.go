@@ -12,10 +12,82 @@ import (
 
 type GOL struct{}
 
+var upperRow []byte
+var lowerRow []byte
+var muHalo sync.Mutex
+
+func getHalo(addrs []string, halo [][]byte) [][]byte {
+	muHalo.Lock()
+	var index int
+	for i, addr := range addrs {
+		if addr == address {
+			index = i
+			break
+		}
+	}
+	if len(addrs) == 1 {
+		halo[0] = lowerRow
+		halo[1] = upperRow
+	}
+	// Calculate addresses for above and below servers
+	aboveIndex := (index - 1 + len(addrs)) % len(addrs)
+	belowIndex := (index + 1) % len(addrs)
+
+	// Fetch rows from above and below servers
+	clientAbove, err := rpc.Dial("tcp", addrs[aboveIndex])
+	if err == nil {
+		defer clientAbove.Close()
+		reqA := stubs.ServerRequest{Above: true}
+		resA := new(stubs.ServerResponse)
+		if err := clientAbove.Call("GOL.SendRow", reqA, resA); err == nil {
+			halo[0] = resA.Row
+		}
+	}
+
+	clientBelow, err := rpc.Dial("tcp", addrs[belowIndex])
+	if err == nil {
+		defer clientBelow.Close()
+		reqB := stubs.ServerRequest{Above: false}
+		resB := new(stubs.ServerResponse)
+		if err := clientBelow.Call("GOL.SendRow", reqB, resB); err == nil {
+			halo[len(halo)-1] = resB.Row
+		}
+	}
+	muHalo.Unlock()
+	return halo
+}
+
+func (gol *GOL) SendRow(req stubs.ServerRequest, res *stubs.ServerResponse) error {
+	if req.Above == true {
+		res.Row = lowerRow
+	} else {
+		res.Row = upperRow
+	}
+
+	return nil
+}
+
+var muNextState sync.Mutex
+
 func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error {
+	muNextState.Lock()
+	upperRow = req.World[0]
+	lowerRow = req.World[len(req.World)-1]
+	muNextState.Unlock()
 	height := req.EndY - req.StartY
 	width := req.EndX - req.StartX
 	nextWorld := createWorld(height, width)
+	haloWorld := make([][]byte, height+2)
+	halo := make([][]byte, 2)
+	halo = getHalo(req.ServerAddr, halo)
+	muNextState.Lock()
+	haloWorld[0] = halo[0]
+	for i := 0; i < height; i++ {
+		haloWorld[i+1] = req.World[i]
+	}
+	haloWorld[len(haloWorld)-1] = halo[1]
+	muNextState.Unlock()
+
 	var cF []util.Cell
 
 	numWorkers := height
@@ -39,7 +111,7 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 		wg.Add(1)
 		go func(workerIndex, startY, endY int) {
 			defer wg.Done()
-			flipped, partialWorld := calculateNextState(req.P, req.World, req.StartX, req.EndX, startY, endY)
+			flipped, partialWorld := calculateNextState(haloWorld, req.StartX, req.EndX, startY, endY, req.StartY)
 			flippedCells[workerIndex] = flipped
 			worlds[workerIndex] = partialWorld
 		}(w, startY, endY)
@@ -67,12 +139,11 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 	return nil
 }
 
-func calculateNextState(p stubs.Params, world [][]byte, startX, endX, startY, endY int) ([]util.Cell, [][]byte) {
+func calculateNextState(world [][]byte, startX, endX, startY, endY, serverY int) ([]util.Cell, [][]byte) {
 	height := endY - startY
 	width := endX - startX
 	nextWorld := createWorld(height, width)
 	var cellsFlipped []util.Cell
-
 	countAlive := func(y, x int) int {
 		alive := 0
 		for i := -1; i <= 1; i++ {
@@ -80,8 +151,8 @@ func calculateNextState(p stubs.Params, world [][]byte, startX, endX, startY, en
 				if i == 0 && j == 0 {
 					continue // Skip the cell itself
 				}
-				neighbourY := (y + i + p.ImageHeight) % p.ImageHeight
-				neighbourX := (x + j + p.ImageWidth) % p.ImageWidth
+				neighbourY := y + i
+				neighbourX := (x + j + width) % width
 				if world[neighbourY][neighbourX] == 255 {
 					alive++
 				}
@@ -90,22 +161,22 @@ func calculateNextState(p stubs.Params, world [][]byte, startX, endX, startY, en
 		return alive
 	}
 
-	for y := startY; y < endY; y++ {
+	for y := 1; y < height+1; y++ {
 		for x := startX; x < endX; x++ {
-			aliveNeighbour := countAlive(y, x)
-			if world[y][x] == 255 { // Cell is alive
+			aliveNeighbour := countAlive(startY+y-serverY, x)
+			if world[y+startY-serverY][x] == 255 { // Cell is alive
 				if aliveNeighbour < 2 || aliveNeighbour > 3 {
-					nextWorld[y-startY][x] = 0 // Cell dies
-					cellsFlipped = append(cellsFlipped, util.Cell{X: x, Y: y})
+					nextWorld[y-1][x] = 0 // Cell dies
+					cellsFlipped = append(cellsFlipped, util.Cell{X: x, Y: y - 1 + startY})
 				} else {
-					nextWorld[y-startY][x] = 255 // Cell stays alive
+					nextWorld[y-1][x] = 255 // Cell stays alive
 				}
 			} else { // Cell is dead
 				if aliveNeighbour == 3 {
-					nextWorld[y-startY][x] = 255 // Cell becomes alive
-					cellsFlipped = append(cellsFlipped, util.Cell{X: x, Y: y})
+					nextWorld[y-1][x] = 255 // Cell becomes alive
+					cellsFlipped = append(cellsFlipped, util.Cell{X: x, Y: y - 1 + startY})
 				} else {
-					nextWorld[y-startY][x] = 0 // Cell remains dead
+					nextWorld[y-1][x] = 0 // Cell remains dead
 				}
 			}
 		}
@@ -190,11 +261,14 @@ func (gol *GOL) ClosingSystem(req stubs.Request, response *stubs.Response) error
 	return nil
 }
 
+var address string
+var broker = flag.String("broker", "127.0.0.1:8050", "IP:port string to connect to broker")
+
 func main() {
 	port := flag.String("port", "8030", "Addr for broker to connect to")
 	ipAddr := flag.String("ip", "127.0.0.1", "IP address to listen on")
 	flag.Parse()
-	address := fmt.Sprintf("%s:%s", *ipAddr, *port)
+	address = fmt.Sprintf("%s:%s", *ipAddr, *port)
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		fmt.Println("Error starting server:", err)
@@ -203,6 +277,17 @@ func main() {
 	fmt.Printf("Listening on :%s\n", address)
 	defer listener.Close()
 	rpc.Register(&GOL{})
+
+	client, _ := rpc.Dial("tcp", *broker)
+	defer func(client *rpc.Client) {
+		err := client.Close()
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(client)
+	req := stubs.BrokerRequest{Addr: address}
+	res := new(stubs.BrokerResponse)
+	client.Call("Broker.AddServer", req, res)
 	go func(listener net.Listener) {
 		<-closingServer
 		listener.Close()
@@ -213,6 +298,6 @@ func main() {
 			fmt.Println("Closing server...")
 			break
 		}
-		rpc.ServeConn(conn)
+		go rpc.ServeConn(conn)
 	}
 }
