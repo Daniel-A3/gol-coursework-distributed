@@ -48,9 +48,3 @@ type BrokerRequest struct {
 }
 type BrokerResponse struct {
 }
-
-type BrokerRequest struct {
-	Addr string
-}
-type BrokerResponse struct {
-}

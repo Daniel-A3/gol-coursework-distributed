@@ -48,8 +48,6 @@ type RequestEvent struct {
 type ResponseEvent struct {
 }
 
-<<<<<<< HEAD
-=======
 type ServerRequest struct {
 	Above bool
 }
@@ -58,7 +56,6 @@ type ServerResponse struct {
 	Row []byte
 }
 
->>>>>>> Attemptedhalomore
 type BrokerRequest struct {
 	Addr string
 }
