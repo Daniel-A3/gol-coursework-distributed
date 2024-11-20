@@ -127,6 +127,7 @@ func (gol *GOL) CalculateNextState(req stubs.Request, res *stubs.Response) error
 	halo := make([][]byte, 2)
 	halo = gol.getHalo(req.ServerAddr, halo)
 	if genError {
+		genError = false
 		return fmt.Errorf("error occured")
 	}
 	muNextState.Lock()

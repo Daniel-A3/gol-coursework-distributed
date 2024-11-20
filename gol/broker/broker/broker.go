@@ -184,6 +184,7 @@ func (b *Broker) CalculateTurns(req stubs.Request, res *stubs.Response) error {
 // RPC wrapper for CalculateNextState, so the client can call broker.CalculateNextState
 func (b *Broker) CalculateNextState(req stubs.Request, res *stubs.Response) error {
 	numServers := len(b.servers)
+	fmt.Println(numServers)
 	if numServers == 0 {
 		return fmt.Errorf("no servers available to handle the workload")
 	}
@@ -231,7 +232,7 @@ func (b *Broker) CalculateNextState(req stubs.Request, res *stubs.Response) erro
 		b.healthCheck()
 		time.Sleep(10 * time.Millisecond)
 		if len(b.servers) > 0 {
-			fmt.Println("Redistributing workload among remaining servers...")
+			//fmt.Println("Redistributing workload among remaining servers...")
 			return b.CalculateNextState(req, res) // Retry with updated server list
 		}
 		fmt.Println("all servers are unavailable or disconnected")
